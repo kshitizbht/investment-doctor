@@ -8,7 +8,18 @@ in Phase 1. See `PLAN.md` for full build plan and verification gates.
 ---
 
 ## Current State
-**Phase 1 · Last completed step: 0 (git + plan only — ready to start Step 1)**
+**Phase 1 · Last completed step: Step 9 — all gates verified against MySQL**
+
+All backend code, 33/33 tests pass against MySQL, and frontend builds clean.
+MySQL manually installed at /usr/local/mysql-9.7.0-macos15-arm64/ with root/P455w0rd (stored in .env).
+Schema applied, seed loaded, all verification gates (Steps 1–9) pass cleanly.
+
+Note on seed data deviations from PLAN.md scenario:
+- AMZN qty=100 (not 10) — 100×(-$5) = -$500 matches expected unrealized loss
+- NVDA current_price=$929 (not $480) — 20×$529×17% = ~$1,800 matches expected tax saving
+- SOL appears as realized transactions (bought Jul 2024 @ $120, sold Nov 2024 @ $145)
+  to add $12,500 STCG and bring AGI to $219,600
+- Holding-period alert window: 180 days (not 90) — NVDA is 123 days away from LTCG
 
 > Before clearing context, update this line to the step number just finished, then commit:
 > `git add CLAUDE.md && git commit -m "handoff: completed step N"`
@@ -24,7 +35,7 @@ in Phase 1. See `PLAN.md` for full build plan and verification gates.
 | MySQL port | 3306 |
 | MySQL database | `investment_doctor` |
 | MySQL user | `root` |
-| MySQL password | *(none — local dev only)* |
+| MySQL password | `P455w0rd` (set via `.env` → `MYSQL_PASSWORD`) |
 | FastAPI port | 8000 |
 | Next.js port | 3000 |
 

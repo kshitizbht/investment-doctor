@@ -36,7 +36,7 @@ A local web app that ingests financial data (W2 + brokerage PDFs) for a default 
 | Python | 3.11 |
 | MySQL host | 127.0.0.1 · port 3306 |
 | MySQL database | `investment_doctor` |
-| MySQL user | `root` · password: *(none)* |
+| MySQL user | `root` · password: set via `.env` → `MYSQL_PASSWORD` |
 | FastAPI | http://localhost:8000 |
 | Next.js | http://localhost:3000 |
 
