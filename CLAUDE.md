@@ -5,14 +5,26 @@ A local-only web app that ingests W2 + brokerage PDFs for a mock user ("John Doe
 surfaces tax intelligence as 5 dashboard cards. No auth, no cloud, no production deployment
 in Phase 1. See `PLAN.md` for full build plan and verification gates.
 
+The UI has 3 tabs (all at `http://localhost:3000`):
+- **Demo** — reads from MySQL via `GET /api/insights`, shows live 5-card dashboard
+- **Calculator** — editable sidebar (income, positions, real estate); calls `POST /api/simulate` with a fresh SQLite in-memory session per request; cards update in real-time (~350ms debounce)
+- **My Account** — static "coming soon" placeholder (future phase)
+
 ---
 
 ## Current State
-**Phase 1 · Last completed step: Step 9 — all gates verified against MySQL**
+**Phase 1 complete + 3-Tab UI added (post-Step 9 feature)**
 
 All backend code, 33/33 tests pass against MySQL, and frontend builds clean.
 MySQL manually installed at /usr/local/mysql-9.7.0-macos15-arm64/ with root/P455w0rd (stored in .env).
 Schema applied, seed loaded, all verification gates (Steps 1–9) pass cleanly.
+
+### Recent feature: 3-Tab UI + `/api/simulate`
+- Added `backend/routers/simulate.py` — `POST /api/simulate`, SQLite in-memory per request, same response shape as `/api/insights`
+- Redesigned frontend with "Terminal Intelligence" dark theme: `#070B12` bg, amber `#F5A623` accent, Syne + Space Mono + DM Sans fonts, dot-grid CSS backdrop, staggered card animations
+- Added `TabNav`, `DashboardCards`, `Calculator`, `AccountPlaceholder` components
+- `Calculator.tsx` contains `DEMO_DEFAULTS` constant that mirrors `backend/db/seed.py` exactly — keep these in sync if seed data changes
+- Plan saved at `docs/plan-three-tabs.md`
 
 Note on seed data deviations from PLAN.md scenario:
 - AMZN qty=100 (not 10) — 100×(-$5) = -$500 matches expected unrealized loss
@@ -21,8 +33,8 @@ Note on seed data deviations from PLAN.md scenario:
   to add $12,500 STCG and bring AGI to $219,600
 - Holding-period alert window: 180 days (not 90) — NVDA is 123 days away from LTCG
 
-> Before clearing context, update this line to the step number just finished, then commit:
-> `git add CLAUDE.md && git commit -m "handoff: completed step N"`
+> Before clearing context, update this section, then commit:
+> `git add CLAUDE.md && git commit -m "handoff: <description>"`
 
 ---
 
@@ -82,14 +94,25 @@ These apply to every file you write. No exceptions.
 |---|---|
 | `PLAN.md` | Full build order, verification gates, API schema — source of truth |
 | `CLAUDE.md` | This file — session handoff context |
+| `docs/plan-three-tabs.md` | Implementation plan for the 3-tab UI feature |
 | `backend/db/schema.sql` | MySQL CREATE TABLE statements |
 | `backend/db/seed.py` | John Doe mock data loader (uses `round_up_to_100`) |
-| `backend/services/anonymize.py` | `round_up_to_100(value) -> int` — create this first in Step 2 |
+| `backend/services/anonymize.py` | `round_up_to_100(value) -> int` |
 | `backend/services/tax_engine.py` | Gain/loss calc, bracket lookup, harvesting scorer |
 | `backend/services/pdf_parser.py` | pdfplumber extraction — allowlist only, no raw text |
-| `backend/routers/insights.py` | GET `/api/insights` — see API schema in `PLAN.md` |
-| `frontend/components/cards/` | One component per dashboard card |
-| `archive/parse_pdf.py` | Reference pdfplumber parser (screener-style table extraction) |
+| `backend/routers/insights.py` | `GET /api/insights` — reads from MySQL |
+| `backend/routers/simulate.py` | `POST /api/simulate` — SQLite in-memory, same response shape |
+| `frontend/app/page.tsx` | Tab controller (Demo / Calculator / My Account) |
+| `frontend/components/TabNav.tsx` | Fixed header with 3 tabs, amber underline |
+| `frontend/components/DashboardCards.tsx` | Shared 5-card grid; used by Demo tab and Calculator right panel |
+| `frontend/components/Calculator.tsx` | Sidebar form + debounced simulate; `DEMO_DEFAULTS` mirrors seed.py |
+| `frontend/components/AccountPlaceholder.tsx` | Coming soon placeholder |
+| `frontend/components/cards/` | 5 card components (dark-themed) |
+| `frontend/lib/api.ts` | API client — `fetchInsights()`, `simulateInsights()`, all TS types |
+| `archive/parse_pdf.py` | Reference pdfplumber parser |
+
+### Python environment note
+Use `pytest` directly (on PATH at `/Library/Frameworks/Python.framework/Versions/3.12/bin/pytest`). Do NOT use `python` or `python3` — brew installed Python 3.14 which lacks the project's packages.
 
 ---
 

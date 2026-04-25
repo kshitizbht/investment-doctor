@@ -3,21 +3,114 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg-base: #070B12;
+  --surface: rgba(255, 255, 255, 0.03);
+  --border: rgba(255, 255, 255, 0.08);
+  --accent: #F5A623;
+  --positive: #00C87C;
+  --negative: #FF4455;
+  --warning: #F59E0B;
+  --text-primary: rgba(255, 255, 255, 0.92);
+  --text-secondary: rgba(255, 255, 255, 0.50);
+  --text-muted: rgba(255, 255, 255, 0.30);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  background: var(--bg-base);
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  font-family: var(--font-body, 'DM Sans', sans-serif);
+  position: relative;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+#__next,
+[data-nextjs-scroll-focus-boundary] {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.card-animate {
+  animation: card-in 0.45s ease-out both;
+  animation-delay: var(--card-delay, 0ms);
+}
+
+.card-glow {
+  transition: box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.card-glow:hover {
+  box-shadow: 0 0 28px rgba(245, 166, 35, 0.1), 0 0 0 1px rgba(245, 166, 35, 0.15);
+  border-color: rgba(245, 166, 35, 0.2) !important;
+}
+
+@keyframes tab-underline-in {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+.tab-underline {
+  transform-origin: left;
+  animation: tab-underline-in 0.2s ease-out both;
+}
+
+@keyframes spin-once {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  animation: spin-once 0.8s linear infinite;
+}
+
+/* Thin dark scrollbar for sidebar */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+}
+
+/* Number inputs remove arrows */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+/* Date input dark theme */
+input[type='date']::-webkit-calendar-picker-indicator {
+  filter: invert(0.6);
+  cursor: pointer;
 }
 
 @layer utilities {

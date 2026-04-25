@@ -71,3 +71,59 @@ export async function fetchInsights(): Promise<InsightsResponse> {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
+
+// ─── Simulate types ───────────────────────────────────────────────────────────
+
+export interface PositionInput {
+  asset_type: string;
+  ticker_or_name: string;
+  quantity: number;
+  cost_basis_per_unit: number;
+  current_price: number;
+  purchase_date: string;
+  expiry_date?: string;
+  is_short?: number;
+  strike_price?: number;
+}
+
+export interface TransactionInput {
+  asset_type: string;
+  ticker_or_name: string;
+  action: string;
+  quantity: number;
+  price_per_unit: number;
+  total_proceeds: number;
+  total_cost_basis: number;
+  transaction_date: string;
+}
+
+export interface RealEstateInput {
+  label: string;
+  purchase_price: number;
+  purchase_date: string;
+  current_estimated_value: number;
+  annual_rental_income: number;
+  depreciation_taken: number;
+  mortgage_interest_paid: number;
+}
+
+export interface SimulateRequest {
+  filing_status: string;
+  state: string;
+  wages: number;
+  federal_tax_withheld: number;
+  state_tax_withheld: number;
+  positions: PositionInput[];
+  transactions: TransactionInput[];
+  real_estate?: RealEstateInput;
+}
+
+export async function simulateInsights(req: SimulateRequest): Promise<InsightsResponse> {
+  const res = await fetch(`${API_BASE}/api/simulate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
