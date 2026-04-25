@@ -1,0 +1,469 @@
+# Investment Doctor — POC Plan
+
+## Overview
+A local web app that ingests financial data (W2 + brokerage PDFs) for a default user "John Doe" and surfaces tax intelligence as dashboard cards.
+
+---
+
+## Phase 1: Local E2E Scenario with Mock Customer
+
+### Goals
+- Working end-to-end flow with a hardcoded user (John Doe)
+- PDF upload + parsing for brokerage statements
+- Tax calculation engine covering equities, options, crypto, real estate
+- Dashboard cards with actionable tax insights
+- Seed data for John Doe so the app is immediately explorable without uploading anything
+
+---
+
+## Tech Stack
+
+| Layer | Choice | Reason |
+|---|---|---|
+| Frontend | Next.js 14 + Tailwind + shadcn/ui | Fast to build, good component library |
+| Backend | FastAPI (Python 3.11) | Better for PDF parsing + financial math |
+| Database | MySQL (local) | Simple, familiar, relational |
+| PDF Parsing | pdfplumber | Best for table extraction from brokerage PDFs |
+| ORM | SQLAlchemy | Works well with FastAPI + MySQL |
+| Tax Logic | Pure Python | Deterministic, testable |
+
+---
+
+## Project Structure
+
+```
+project_investment_doctor/
+├── frontend/                  # Next.js app
+│   ├── app/
+│   │   ├── page.tsx           # Dashboard (main view)
+│   │   ├── upload/page.tsx    # PDF upload page
+│   │   └── layout.tsx
+│   ├── components/
+│   │   ├── cards/             # All dashboard card components
+│   │   │   ├── TaxSummaryCard.tsx
+│   │   │   ├── CapitalGainsCard.tsx
+│   │   │   ├── HarvestingCard.tsx
+│   │   │   ├── HoldingPeriodCard.tsx
+│   │   │   └── AssetBreakdownCard.tsx
+│   │   └── UploadDropzone.tsx
+│   └── lib/api.ts             # API client
+│
+├── backend/                   # FastAPI app
+│   ├── main.py
+│   ├── db/
+│   │   ├── models.py          # SQLAlchemy models
+│   │   ├── session.py         # DB connection
+│   │   └── seed.py            # John Doe mock data
+│   ├── routers/
+│   │   ├── upload.py          # PDF upload & parse
+│   │   ├── positions.py       # Portfolio positions
+│   │   └── insights.py        # Tax calculations & card data
+│   ├── services/
+│   │   ├── anonymize.py       # round_up_to_100() — income anonymization
+│   │   ├── pdf_parser.py      # pdfplumber extraction logic
+│   │   └── tax_engine.py      # Core tax logic
+│   └── requirements.txt
+│
+├── mock_data/                 # Sample PDFs + seed SQL
+│   ├── john_doe_w2.pdf        # Fake W2
+│   ├── john_doe_brokerage.pdf # Fake brokerage statement
+│   └── seed_data.sql
+│
+└── PLAN.md
+```
+
+---
+
+## Privacy & Data Handling
+
+This app ingests documents that may contain sensitive personal data (SSN, full legal name, date of birth, home address). The following rules apply at every layer:
+
+### What is never stored or logged
+| Data type | Examples | Rule |
+|---|---|---|
+| Social Security Number | SSN on W2, 1099 | Never extracted, never stored, never logged |
+| Full legal name | Name field on W2 | Not stored in DB; mock name ("John Doe") is only used as a display label in seed data |
+| Date of birth | Any DOB field | Never extracted or stored |
+| Home / mailing address | Taxpayer address on W2 | Discarded during parsing |
+| Employer address / EIN | W2 box fields | Discarded during parsing |
+| Raw document text | Full extracted text from pdfplumber | Never written to DB; parse → extract structured fields → discard |
+
+### Income anonymization rule (`pdf_parser.py`, `tax_engine.py`, `seed.py`)
+All income and AGI-derived values are **rounded up to the nearest $100** before being stored or used in any calculation. The goal is to understand income sources and tax brackets without retaining exact compensation figures.
+
+- Applies to: W2 wages, federal/state tax withheld, AGI (W2 wages + realized gains), rental income, and any other income-type field extracted from a document.
+- Does **not** apply to: per-share prices, cost basis per unit, quantities, or transaction-level amounts (rounding those would distort gain/loss math).
+- Implementation: a single helper `round_up_to_100(value: float) -> int` lives in `services/anonymize.py` and is called by the parser and seed loader — nowhere else manages this rounding.
+
+```python
+import math
+def round_up_to_100(value: float) -> int:
+    return math.ceil(value / 100) * 100
+```
+
+### PDF parsing rules (`pdf_parser.py`)
+- Use an explicit **allowlist** of fields to extract: wages, tax-withheld amounts, tickers, quantities, prices, dates, asset types.
+- Everything outside the allowlist is discarded immediately after extraction.
+- Income fields (wages, withheld amounts) are passed through `round_up_to_100()` before any further use.
+- No raw text is written to disk or to the DB (see `uploads` schema below).
+- No PII field is ever passed to `logging.*` or `print()`.
+
+### Database rules
+- `users` table holds only non-identifying attributes (`filing_status`, `state`). No name, DOB, SSN, or address.
+- `real_estate` table uses a user-assigned **label** (e.g., "Rental – SF Condo") instead of a street address.
+- `uploads` table stores only parse metadata (field counts, status), not raw text.
+
+### File handling rules
+- Uploaded PDFs are processed **in memory only** (via `UploadFile.read()`). They are not written to a temp path on disk.
+- The `UploadFile` object is closed and garbage-collected immediately after parsing completes.
+
+### Cloud boundary rule
+- Phase 1 is fully local; no data leaves the machine.
+- If/when an AI layer (e.g., Claude API) is added, only **numerical and categorical fields** (gains, losses, brackets, asset types) are sent. Names, SSNs, addresses, and raw document text are never included in any API request payload.
+
+---
+
+## Database Schema
+
+```sql
+-- Single default user for POC
+-- NOTE: no name, DOB, SSN, or address — only attributes needed for tax math
+users (id, filing_status, state)
+
+-- W2 / income
+-- NOTE: source is a non-identifying label (e.g. "employer_1"), not the employer name/EIN
+w2_income (id, user_id, tax_year, wages, federal_tax_withheld, state_tax_withheld, source_label)
+
+-- All holdings (equities, options, crypto, real estate)
+positions (
+  id, user_id, asset_type [stock|option|crypto|real_estate],
+  ticker_or_name, quantity, cost_basis_per_unit, current_price,
+  purchase_date, expiry_date [options],
+  is_short [options], strike_price [options]
+)
+
+-- Realized transactions (from PDF or manual)
+transactions (
+  id, user_id, asset_type, ticker_or_name,
+  action [buy|sell|exercise|expire],
+  quantity, price_per_unit, total_proceeds, total_cost_basis,
+  transaction_date, is_wash_sale
+)
+
+-- Real estate separately (more complex)
+-- NOTE: label is a user-assigned non-identifying string (e.g. "Rental – SF Condo")
+--       street address is never stored
+real_estate (
+  id, user_id, label, purchase_price, purchase_date,
+  current_estimated_value, annual_rental_income,
+  depreciation_taken, mortgage_interest_paid
+)
+
+-- Parsed PDF uploads (audit trail)
+-- NOTE: raw_text is intentionally omitted — only parse metadata is stored
+uploads (id, user_id, filename, upload_date, parsed_status, extracted_field_count)
+```
+
+---
+
+## Dashboard Cards (Phase 1)
+
+### Card 1 — Tax Snapshot
+- Estimated AGI (W2 wages + realized gains)
+- Federal tax bracket you're in
+- Estimated year-end tax bill
+- Delta vs last year (if data available)
+
+### Card 2 — Capital Gains Summary
+- Short-term realized gains/losses (taxed as ordinary income)
+- Long-term realized gains/losses (preferential rate)
+- Net capital gain/loss
+- Breakdown by asset type (stocks, options, crypto, real estate)
+
+### Card 3 — Tax Loss Harvesting Opportunities
+- Positions currently at an unrealized loss
+- Potential tax savings if harvested
+- Wash sale warning (if similar position bought in last 30 days)
+- Flag positions close to 1-year holding (hold vs sell decision)
+
+### Card 4 — Holding Period Alerts
+- Positions that flip from short-term to long-term within 90 days
+- Estimated tax saving by waiting
+- Options near expiry that trigger taxable events
+
+### Card 5 — Asset Breakdown
+- Portfolio composition by asset type
+- Unrealized gain/loss per category
+- Crypto: highlight positions with highest gain (HIFO vs FIFO note)
+
+---
+
+## John Doe Mock Scenario
+
+John Doe is a 35-year-old software engineer, single filer, California resident.
+
+All income values below are **already rounded up to the nearest $100** per the anonymization rule.
+
+| Source | Detail |
+|---|---|
+| W2 Income | $180,000 (rounded up from exact figure) |
+| Federal Withheld | $32,000 (rounded up) |
+| State Withheld | $14,000 (rounded up) |
+| **Stocks** | AAPL 50 shares @ $150 cost (now $220) — LTCG |
+| | TSLA 30 shares @ $280 cost (now $195) — unrealized loss, harvesting candidate |
+| | NVDA 20 shares @ $400 cost (now $480) — short-term (bought 8 months ago) |
+| | AMZN 10 shares @ $190 cost (now $185) — small unrealized loss |
+| **Realized (this year)** | Sold MSFT: $5,200 gain (long-term) |
+| | Sold COIN: $2,100 loss (short-term) |
+| **Options** | 2x AAPL $200 call (exp 3 months out, up 40%) |
+| | 1x SPY $450 put (exp 6 weeks out, down 60%) — potential loss harvest |
+| **Crypto** | 1.5 BTC @ $30,000 cost (now $65,000) — LTCG |
+| | 10 ETH @ $3,200 cost (now $2,400) — unrealized loss |
+| | 500 SOL @ $120 cost (now $145) — short-term gain |
+| **Real Estate** | Rental condo, bought $450k, now ~$510k, $24k rental income/yr |
+
+### Key insights this scenario should surface:
+1. TSLA + ETH + AMZN + SPY put = ~$14,400 harvestable losses to offset MSFT gain + SOL gains
+2. NVDA: hold 4 more months to qualify for LTCG rate (saves ~$1,800 at 22% bracket)
+3. Rental income pushes AGI up — depreciation deduction reminder
+4. Net capital position: roughly +$8k after harvesting, taxed at LTCG rate (15%)
+5. Without harvesting: ~$4,200 more in taxes
+
+---
+
+## Build Order (Phase 1 Sprint)
+
+1. **DB setup** — MySQL schema + seed John Doe data (schema uses no PII columns per schema above)
+2. **FastAPI backend** — models, session, seed loader
+   - Create `services/anonymize.py` with `round_up_to_100()` first; seed loader uses it for all income fields
+3. **Tax engine** — gain/loss calculator, harvesting scorer, bracket lookup
+   - AGI computation calls `round_up_to_100()` on the final AGI value before returning it
+4. **Insights API** — `/api/insights` endpoint returning all card data
+5. **Next.js frontend** — dashboard layout + 5 card components
+6. **PDF upload flow** — dropzone → FastAPI → pdfplumber → parsed positions
+   - Parser applies allowlist extraction; SSN/name/address/DOB are discarded immediately
+   - PDF bytes are never written to disk; processed in memory only
+   - `raw_text` is never persisted; only structured numeric fields go to DB
+7. **Wire it together** — upload overwrites/extends seed data, cards refresh
+8. **E2E test** — fresh DB + seed → verify all cards show correct John Doe numbers
+9. **PII audit** — grep codebase for known PII patterns (SSN regex, "name", "address", "dob") in DB writes and log statements; confirm none reach storage or logs
+
+---
+
+## Phase 1 — Verification Plan
+
+Each build step has a defined "done" gate. A step is not complete until its gate passes cleanly.
+
+---
+
+### Step 1 · DB Setup
+
+**Gate: schema loads and seed data is correct**
+
+```bash
+# Apply schema
+mysql -u root investment_doctor < backend/db/schema.sql
+
+# Load seed
+python -m backend.db.seed
+
+# Verify tables exist
+mysql -u root investment_doctor -e "SHOW TABLES;"
+# Expected: uploads, users, w2_income, positions, transactions, real_estate
+
+# Verify John Doe income is rounded to nearest 100
+mysql -u root investment_doctor -e "SELECT wages, federal_tax_withheld, state_tax_withheld FROM w2_income;"
+# Expected: all values divisible by 100 (e.g. 180000, 32000, 14000)
+
+# Verify no PII columns exist
+mysql -u root investment_doctor -e "DESCRIBE users;"
+# Expected: only id, filing_status, state — no name/ssn/dob/address columns
+```
+
+---
+
+### Step 2 · FastAPI Backend + Anonymize
+
+**Gate: server starts, health check passes, `round_up_to_100` unit tests pass**
+
+```bash
+# Unit tests for anonymize helper
+pytest backend/tests/test_anonymize.py -v
+# Must cover: already-rounded value, fractional cents, zero, large number
+# e.g. round_up_to_100(179_423) == 179_500
+#      round_up_to_100(32_000)  == 32_000
+#      round_up_to_100(0)       == 0
+
+# Start server
+uvicorn backend.main:app --reload
+
+# Health check
+curl http://localhost:8000/health
+# Expected: {"status": "ok"}
+```
+
+---
+
+### Step 3 · Tax Engine
+
+**Gate: pytest passes for all John Doe expected values**
+
+```bash
+pytest backend/tests/test_tax_engine.py -v
+```
+
+Tests must assert the following John Doe outputs (hardcoded expected values):
+
+| Calculation | Expected |
+|---|---|
+| AGI (wages + net gains + rental, rounded up) | $219,600 |
+| Federal bracket (single filer) | 32% |
+| AAPL LTCG | +$3,500 |
+| BTC LTCG | +$52,500 |
+| TSLA unrealized loss | -$2,550 |
+| ETH unrealized loss | -$8,000 |
+| AMZN unrealized loss | -$500 |
+| Net realized gain (MSFT - COIN) | +$3,100 |
+| Total harvestable losses (TSLA+ETH+AMZN+SPY put) | ~$14,400 |
+| NVDA days until LTCG flip | ~120 days |
+| Tax saving by waiting on NVDA | ~$1,800 |
+
+---
+
+### Step 4 · Insights API
+
+**Gate: endpoint returns valid JSON matching John Doe numbers**
+
+```bash
+# Integration test against seeded test DB
+pytest backend/tests/test_insights.py -v
+
+# Manual smoke test
+curl http://localhost:8000/api/insights | python -m json.tool
+# Expected: JSON object with keys: tax_snapshot, capital_gains, harvesting,
+#           holding_period_alerts, asset_breakdown
+# Values must match tax engine assertions above
+```
+
+---
+
+### Step 5 · Next.js Frontend
+
+**Gate: build succeeds, all 5 cards render with data**
+
+```bash
+cd frontend
+
+# Type-check and build
+npm run build
+# Expected: zero TypeScript errors, zero build errors
+
+# Dev server
+npm run dev
+# Expected: starts on http://localhost:3000
+```
+
+Manual checks (open browser to `localhost:3000`):
+- [ ] TaxSummaryCard shows AGI, bracket, estimated bill
+- [ ] CapitalGainsCard shows LTCG vs STCG breakdown
+- [ ] HarvestingCard lists TSLA, ETH, AMZN, SPY put with loss amounts
+- [ ] HoldingPeriodCard shows NVDA "hold ~120 days" alert
+- [ ] AssetBreakdownCard shows stocks / crypto / real estate allocation
+- [ ] No browser console errors
+
+---
+
+### Step 6 · PDF Upload
+
+**Gate: real Wells Fargo PDFs parse without PII leaking into DB**
+
+```bash
+# Unit test parser with sample bytes
+pytest backend/tests/test_pdf_parser.py -v
+# Must assert: SSN field absent from returned dict,
+#              only allowlisted fields present (tickers, quantities, prices, dates)
+
+# Integration test with real PDFs (already in repo)
+curl -X POST http://localhost:8000/api/upload \
+  -F "file=@brok_wells_fargo_costbasis.pdf"
+# Expected: JSON of parsed positions — no name/SSN/address fields
+
+curl -X POST http://localhost:8000/api/upload \
+  -F "file=@brok_wells_fargo_march_statement.pdf"
+# Expected: same
+
+# Verify DB state after upload
+mysql -u root investment_doctor -e \
+  "SELECT COUNT(*) FROM positions; SELECT COUNT(*) FROM transactions;"
+# Counts should increase — no errors
+```
+
+---
+
+### Step 7 · Wire It Together
+
+**Gate: upload refreshes card data beyond seed values**
+
+```bash
+# Baseline: record insights from seed only
+curl http://localhost:8000/api/insights > before_upload.json
+
+# Upload a PDF
+curl -X POST http://localhost:8000/api/upload \
+  -F "file=@brok_wells_fargo_costbasis.pdf"
+
+# Check insights changed
+curl http://localhost:8000/api/insights > after_upload.json
+diff before_upload.json after_upload.json
+# Expected: position counts or gain/loss totals differ
+```
+
+---
+
+### Step 8 · E2E Test
+
+**Gate: automated full-scenario script passes from scratch**
+
+```bash
+pytest backend/tests/test_e2e.py -v
+```
+
+Script flow:
+1. Drop and recreate schema (clean slate)
+2. Run seed loader
+3. Assert all 5 insight cards match John Doe expected values (from Step 3 table)
+4. Upload `brok_wells_fargo_costbasis.pdf`
+5. Assert positions table row count increased
+6. Assert insights endpoint still returns valid schema
+
+---
+
+### Step 9 · PII Audit
+
+**Gate: zero PII in DB write paths or log calls**
+
+```bash
+# Check for PII field names in Python source (excluding test files and comments)
+grep -rn "ssn\|social_security\|\.name\b\|\"name\"\|'name'\|\baddress\b\|\bdob\b\|date_of_birth" \
+  backend/ --include="*.py" | grep -v "^.*#\|test_"
+# Expected: zero matches in any DB write or model definition
+
+# Check log calls don't carry income/identity values
+grep -rn "logging\.\(info\|debug\|warning\|error\|exception\)\|print(" \
+  backend/ --include="*.py"
+# Review each result manually — none should reference wages, name, SSN, or address
+
+# Confirm raw_text is never assigned or inserted
+grep -rn "raw_text" backend/ --include="*.py"
+# Expected: zero matches (column intentionally omitted from schema)
+```
+
+---
+
+## Out of Scope for Phase 1
+- Authentication / user accounts
+- Plaid / live brokerage connections
+- Email alerts
+- AI/Claude recommendations
+- Production deployment
+- Multi-year comparison

@@ -1,0 +1,47 @@
+# ── PII / sensitive documents ──────────────────────────────────────────────
+# Never commit real financial documents. Mock PDFs live in mock_data/ and
+# must be explicitly allowlisted there via a nested .gitignore if needed.
+*.pdf
+*.PDF
+*.csv          # brokerage exports may contain account numbers
+*.xls
+*.xlsx
+mock_data/*.sql  # seed SQL may contain real values during development
+
+# ── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+.env
+.env.*
+*.env
+
+# ── Node / Next.js ───────────────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ── Database ─────────────────────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+mysql_data/
+
+# ── OS / editor ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
