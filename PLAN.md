@@ -29,6 +29,44 @@ A local web app that ingests financial data (W2 + brokerage PDFs) for a default 
 
 ---
 
+## Local Environment
+
+| Setting | Value |
+|---|---|
+| Python | 3.11 |
+| MySQL host | 127.0.0.1 · port 3306 |
+| MySQL database | `investment_doctor` |
+| MySQL user | `root` · password: *(none)* |
+| FastAPI | http://localhost:8000 |
+| Next.js | http://localhost:3000 |
+
+```bash
+# One-time DB creation
+mysql -u root -e "CREATE DATABASE IF NOT EXISTS investment_doctor;"
+
+# Backend
+pip install -r backend/requirements.txt
+uvicorn backend.main:app --reload --port 8000
+
+# Frontend
+npm install --prefix frontend
+npm run dev --prefix frontend
+```
+
+### `backend/requirements.txt` (canonical list)
+```
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+sqlalchemy==2.0.30
+pymysql==1.1.1
+pdfplumber==0.11.0
+python-multipart==0.0.9
+pytest==8.2.0
+httpx==0.27.0        # for pytest FastAPI test client
+```
+
+---
+
 ## Project Structure
 
 ```
@@ -233,20 +271,192 @@ All income values below are **already rounded up to the nearest $100** per the a
 
 ## Build Order (Phase 1 Sprint)
 
-1. **DB setup** — MySQL schema + seed John Doe data (schema uses no PII columns per schema above)
-2. **FastAPI backend** — models, session, seed loader
-   - Create `services/anonymize.py` with `round_up_to_100()` first; seed loader uses it for all income fields
-3. **Tax engine** — gain/loss calculator, harvesting scorer, bracket lookup
-   - AGI computation calls `round_up_to_100()` on the final AGI value before returning it
-4. **Insights API** — `/api/insights` endpoint returning all card data
-5. **Next.js frontend** — dashboard layout + 5 card components
-6. **PDF upload flow** — dropzone → FastAPI → pdfplumber → parsed positions
-   - Parser applies allowlist extraction; SSN/name/address/DOB are discarded immediately
-   - PDF bytes are never written to disk; processed in memory only
-   - `raw_text` is never persisted; only structured numeric fields go to DB
-7. **Wire it together** — upload overwrites/extends seed data, cards refresh
-8. **E2E test** — fresh DB + seed → verify all cards show correct John Doe numbers
-9. **PII audit** — grep codebase for known PII patterns (SSN regex, "name", "address", "dob") in DB writes and log statements; confirm none reach storage or logs
+Each step lists its prerequisite state, what to build, and a pointer to its verification gate.
+
+---
+
+### Step 1 · DB Setup
+**Prerequisite:** MySQL is running on 127.0.0.1:3306; database `investment_doctor` exists (`CREATE DATABASE IF NOT EXISTS investment_doctor;`)
+
+**Build:**
+- Write `backend/db/schema.sql` with all CREATE TABLE statements from the schema above (no PII columns)
+- Apply: `mysql -u root investment_doctor < backend/db/schema.sql`
+
+**Verify:** § Verification Plan → Step 1
+
+---
+
+### Step 2 · FastAPI Backend + Anonymize
+**Prerequisite:** Step 1 gate passes (tables exist, seed loaded, income values divisible by 100)
+
+**Build:**
+- `backend/main.py` — FastAPI app with `/health` route
+- `backend/db/models.py` — SQLAlchemy models mirroring schema.sql
+- `backend/db/session.py` — engine + `get_db` dependency
+- `backend/db/seed.py` — inserts John Doe rows; calls `round_up_to_100()` on all income fields
+- `backend/services/anonymize.py` — **create this first**:
+  ```python
+  import math
+  def round_up_to_100(value: float) -> int:
+      return math.ceil(value / 100) * 100
+  ```
+- `backend/tests/test_anonymize.py` — unit tests (see verification gate)
+
+**Verify:** § Verification Plan → Step 2
+
+---
+
+### Step 3 · Tax Engine
+**Prerequisite:** Step 2 gate passes (`/health` returns 200, `test_anonymize.py` passes)
+
+**Build:**
+- `backend/services/tax_engine.py`:
+  - `compute_agi(user_id, db) -> int` — wages + net realized gains + rental income, then `round_up_to_100()`
+  - `federal_bracket(agi, filing_status) -> dict` — returns `{rate, min, max}`; use 2024 brackets
+  - `realized_gains(user_id, db) -> dict` — short-term and long-term totals by asset type
+  - `harvesting_opportunities(user_id, db) -> list` — positions with unrealized loss; flag wash-sale risk
+  - `holding_period_alerts(user_id, db) -> list` — positions within 90 days of LTCG flip
+- `backend/tests/test_tax_engine.py` — assert John Doe expected values (see table in verification gate)
+
+**Verify:** § Verification Plan → Step 3
+
+---
+
+### Step 4 · Insights API
+**Prerequisite:** Step 3 gate passes (all tax engine assertions green)
+
+**Build:**
+- `backend/routers/insights.py` — `GET /api/insights` returns the response shape defined in § API Response Schema below
+- Register router in `main.py`
+- `backend/tests/test_insights.py` — integration test against seeded test DB
+
+**Verify:** § Verification Plan → Step 4
+
+---
+
+### Step 5 · Next.js Frontend
+**Prerequisite:** Step 4 gate passes (`/api/insights` returns valid JSON matching schema)
+
+**Build:**
+- `frontend/` — scaffold with `npx create-next-app@14 frontend --typescript --tailwind --app`
+- Install shadcn/ui: `npx shadcn-ui@latest init` inside `frontend/`
+- `frontend/lib/api.ts` — typed fetch wrapper for `/api/insights` using the schema in § API Response Schema
+- One card component per card (see Project Structure); each receives its slice of the insights response as props
+
+**Verify:** § Verification Plan → Step 5
+
+---
+
+### Step 6 · PDF Upload
+**Prerequisite:** Step 5 gate passes (frontend builds, all 5 cards render)
+
+**Build:**
+- `backend/services/pdf_parser.py` — pdfplumber; allowlist extraction only; refer to `archive/parse_pdf.py` for table parsing patterns
+- `backend/routers/upload.py` — `POST /api/upload`; read bytes in memory, parse, insert positions/transactions, discard bytes
+- `frontend/components/UploadDropzone.tsx` — drag-and-drop; POST to `/api/upload`
+- `frontend/app/upload/page.tsx`
+- `backend/tests/test_pdf_parser.py`
+
+**Verify:** § Verification Plan → Step 6
+
+---
+
+### Step 7 · Wire It Together
+**Prerequisite:** Step 6 gate passes (upload parses real PDFs without error)
+
+**Build:**
+- After upload completes, frontend re-fetches `/api/insights` and re-renders all cards
+- Confirm cards reflect uploaded positions beyond the seed data
+
+**Verify:** § Verification Plan → Step 7
+
+---
+
+### Step 8 · E2E Test
+**Prerequisite:** Step 7 gate passes (diff shows cards change after upload)
+
+**Build:**
+- `backend/tests/test_e2e.py` — full scenario: drop schema → recreate → seed → assert insights → upload PDF → assert row counts increase → assert insights still valid schema
+
+**Verify:** § Verification Plan → Step 8
+
+---
+
+### Step 9 · PII Audit
+**Prerequisite:** Step 8 gate passes (E2E green)
+
+**Build:** no new code — run the grep commands in the verification gate and fix any hits
+
+**Verify:** § Verification Plan → Step 9
+
+---
+
+## API Response Schema
+
+`GET /api/insights` returns a single JSON object. Both the backend router and the frontend
+`lib/api.ts` types must match this shape exactly.
+
+```jsonc
+{
+  "tax_snapshot": {
+    "agi": 219600,                     // int, rounded up to nearest 100
+    "federal_bracket_pct": 32,         // int (marginal rate %)
+    "estimated_federal_tax": 47200,    // int
+    "estimated_state_tax": 19800       // int (CA rate applied to AGI)
+  },
+
+  "capital_gains": {
+    "short_term_realized": -2100,      // int (negative = net loss)
+    "long_term_realized": 5200,        // int
+    "net_realized": 3100,              // int = short + long
+    "by_asset_type": {
+      "stocks":      { "short_term": -2100, "long_term": 5200 },
+      "options":     { "short_term": 0,     "long_term": 0    },
+      "crypto":      { "short_term": 0,     "long_term": 0    },
+      "real_estate": { "short_term": 0,     "long_term": 0    }
+    }
+  },
+
+  "harvesting": {
+    "opportunities": [
+      {
+        "ticker_or_name": "TSLA",
+        "asset_type": "stock",          // "stock"|"option"|"crypto"|"real_estate"
+        "unrealized_loss": -2550,       // int, always negative here
+        "wash_sale_risk": false         // bool: similar position bought in last 30 days
+      }
+      // ... one entry per harvestable position
+    ],
+    "total_harvestable_loss": -14400,   // int, sum of unrealized_loss above
+    "estimated_tax_savings": 4200       // int, |total_harvestable_loss| * marginal_rate
+  },
+
+  "holding_period_alerts": [
+    {
+      "ticker_or_name": "NVDA",
+      "asset_type": "stock",
+      "days_until_ltcg": 120,           // int
+      "estimated_tax_saving": 1800      // int: tax saved by waiting
+    }
+    // ... one entry per position within 90 days of LTCG flip
+  ],
+
+  "asset_breakdown": {
+    "by_type": {
+      "stocks":      { "unrealized_gain_loss": 950,   "pct_of_portfolio": 45 },
+      "options":     { "unrealized_gain_loss": -200,  "pct_of_portfolio": 5  },
+      "crypto":      { "unrealized_gain_loss": 55300, "pct_of_portfolio": 35 },
+      "real_estate": { "unrealized_gain_loss": 60000, "pct_of_portfolio": 15 }
+    }
+  }
+}
+```
+
+### Notes
+- All dollar amounts are integers (no decimals) to avoid floating-point display bugs.
+- `agi` and all income-derived fields have already been through `round_up_to_100()` before this response is built.
+- `pct_of_portfolio` values are whole-number percentages; they must sum to 100.
+- The frontend TypeScript types in `lib/api.ts` must mirror this structure exactly.
 
 ---
 
