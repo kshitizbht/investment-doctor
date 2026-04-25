@@ -1,3 +1,4 @@
+my_test_files/
 # ── PII / sensitive documents ──────────────────────────────────────────────
 # Never commit real financial documents. Mock PDFs live in mock_data/ and
 # must be explicitly allowlisted there via a nested .gitignore if needed.
