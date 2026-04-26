@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routers import insights, simulate, upload
+from backend.routers import ask_claude, insights, net_worth, simulate, upload
 
 app = FastAPI(title="Investment Doctor API")
 
@@ -15,6 +15,8 @@ app.add_middleware(
 app.include_router(insights.router)
 app.include_router(simulate.router)
 app.include_router(upload.router)
+app.include_router(net_worth.router)
+app.include_router(ask_claude.router)
 
 
 @app.get("/health")

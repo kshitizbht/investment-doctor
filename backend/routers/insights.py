@@ -6,10 +6,13 @@ from backend.db.session import get_db
 from backend.services.tax_engine import (
     asset_breakdown,
     compute_agi,
+    compute_net_worth,
     federal_bracket,
     harvesting_opportunities,
     holding_period_alerts,
+    net_worth_history,
     realized_gains,
+    state_bracket_pct,
 )
 
 router = APIRouter()
@@ -29,19 +32,23 @@ def get_insights(db: Session = Depends(get_db)):
     agi = compute_agi(uid, db)
     bracket = federal_bracket(agi, user.filing_status)
     marginal_rate = bracket["rate"] / 100.0
+    s_bracket = state_bracket_pct(user.state)
 
     federal_tax = int(agi * marginal_rate)
-    state_tax = int(agi * _CA_INCOME_TAX_RATE)
+    state_tax = int(agi * (s_bracket / 100.0))
 
     gains = realized_gains(uid, db)
     harvest = harvesting_opportunities(uid, db)
     alerts = holding_period_alerts(uid, db)
     breakdown = asset_breakdown(uid, db)
+    nw = compute_net_worth(uid, db)
+    history = net_worth_history(uid, db)
 
     return {
         "tax_snapshot": {
             "agi": agi,
             "federal_bracket_pct": bracket["rate"],
+            "state_bracket_pct": s_bracket,
             "estimated_federal_tax": federal_tax,
             "estimated_state_tax": state_tax,
         },
@@ -54,4 +61,6 @@ def get_insights(db: Session = Depends(get_db)):
         "harvesting": harvest,
         "holding_period_alerts": alerts,
         "asset_breakdown": breakdown,
+        "net_worth": nw,
+        "net_worth_history": history,
     }

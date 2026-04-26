@@ -23,7 +23,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from backend.db.models import Position, Transaction, W2Income, RealEstate
+from backend.db.models import Position, Transaction, W2Income, RealEstate, NetWorthSnapshot
 from backend.services.anonymize import round_up_to_100
 
 _FEDERAL_BRACKETS_2024_SINGLE = [
@@ -43,6 +43,19 @@ _LTCG_BRACKETS_2024_SINGLE = [
 ]
 
 # Map DB asset_type (singular) → API key (plural where applicable)
+_STATE_BRACKET_PCT: dict[str, float] = {
+    "CA": 9.3,
+    "NY": 6.85,
+    "TX": 0.0,
+    "FL": 0.0,
+    "WA": 0.0,
+}
+
+
+def state_bracket_pct(state: str) -> float:
+    return _STATE_BRACKET_PCT.get(state.upper(), 0.0)
+
+
 _ASSET_KEY = {
     "stock": "stocks",
     "option": "options",
@@ -259,3 +272,42 @@ def asset_breakdown(user_id: int, db: Session) -> dict:
         }
 
     return {"by_type": result}
+
+
+def compute_net_worth(user_id: int, db: Session) -> dict:
+    """Current net worth = open positions market value + real estate + wages."""
+    positions = db.query(Position).filter_by(user_id=user_id).all()
+    stocks_value = int(sum(float(p.quantity) * float(p.current_price) for p in positions))
+
+    re_rows = db.query(RealEstate).filter_by(user_id=user_id).all()
+    real_estate_value = sum(int(re.current_estimated_value) for re in re_rows)
+
+    w2 = db.query(W2Income).filter_by(user_id=user_id).first()
+    income_value = int(w2.wages) if w2 else 0
+
+    return {
+        "stocks_value": stocks_value,
+        "real_estate_value": real_estate_value,
+        "income_value": income_value,
+        "total": stocks_value + real_estate_value + income_value,
+    }
+
+
+def net_worth_history(user_id: int, db: Session) -> list:
+    """Return historical net worth snapshots ordered by date."""
+    rows = (
+        db.query(NetWorthSnapshot)
+        .filter_by(user_id=user_id)
+        .order_by(NetWorthSnapshot.snapshot_date)
+        .all()
+    )
+    return [
+        {
+            "date": r.snapshot_date.isoformat(),
+            "stocks": r.stocks_value,
+            "real_estate": r.real_estate_value,
+            "income": r.income_value,
+            "total": r.total_net_worth,
+        }
+        for r in rows
+    ]

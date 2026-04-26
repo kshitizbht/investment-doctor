@@ -61,6 +61,17 @@ CREATE TABLE IF NOT EXISTS real_estate (
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS net_worth_snapshots (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    snapshot_date DATE NOT NULL,
+    stocks_value INT NOT NULL DEFAULT 0,
+    real_estate_value INT NOT NULL DEFAULT 0,
+    income_value INT NOT NULL DEFAULT 0,
+    total_net_worth INT NOT NULL DEFAULT 0,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
 -- Only parse metadata stored; raw_text intentionally omitted
 CREATE TABLE IF NOT EXISTS uploads (
     id INT AUTO_INCREMENT PRIMARY KEY,

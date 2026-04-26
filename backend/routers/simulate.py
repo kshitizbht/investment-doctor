@@ -11,10 +11,12 @@ from backend.services.anonymize import round_up_to_100
 from backend.services.tax_engine import (
     asset_breakdown,
     compute_agi,
+    compute_net_worth,
     federal_bracket,
     harvesting_opportunities,
     holding_period_alerts,
     realized_gains,
+    state_bracket_pct,
 )
 
 router = APIRouter()
@@ -63,7 +65,7 @@ class SimulateRequest(BaseModel):
     state_tax_withheld: int = 0
     positions: List[PositionInput] = []
     transactions: List[TransactionInput] = []
-    real_estate: Optional[RealEstateInput] = None
+    real_estate_list: List[RealEstateInput] = []
 
 
 @router.post("/api/simulate")
@@ -116,8 +118,7 @@ def simulate_insights(req: SimulateRequest):
                 is_wash_sale=False,
             ))
 
-        if req.real_estate:
-            re = req.real_estate
+        for re in req.real_estate_list:
             db.add(RealEstate(
                 user_id=uid,
                 label=re.label,
@@ -134,19 +135,22 @@ def simulate_insights(req: SimulateRequest):
         agi = compute_agi(uid, db)
         bracket = federal_bracket(agi, user.filing_status)
         marginal_rate = bracket["rate"] / 100.0
+        s_bracket = state_bracket_pct(req.state)
 
         federal_tax = int(agi * marginal_rate)
-        state_tax = int(agi * _CA_INCOME_TAX_RATE)
+        state_tax = int(agi * (s_bracket / 100.0))
 
         gains = realized_gains(uid, db)
         harvest = harvesting_opportunities(uid, db)
         alerts = holding_period_alerts(uid, db)
         breakdown = asset_breakdown(uid, db)
+        nw = compute_net_worth(uid, db)
 
         return {
             "tax_snapshot": {
                 "agi": agi,
                 "federal_bracket_pct": bracket["rate"],
+                "state_bracket_pct": s_bracket,
                 "estimated_federal_tax": federal_tax,
                 "estimated_state_tax": state_tax,
             },
@@ -159,6 +163,8 @@ def simulate_insights(req: SimulateRequest):
             "harvesting": harvest,
             "holding_period_alerts": alerts,
             "asset_breakdown": breakdown,
+            "net_worth": nw,
+            "net_worth_history": [],
         }
     finally:
         db.close()

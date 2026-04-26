@@ -14,13 +14,59 @@ from datetime import date
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from backend.db.session import SessionLocal
-from backend.db.models import User, W2Income, Position, Transaction, RealEstate
+from backend.db.models import User, W2Income, Position, Transaction, RealEstate, NetWorthSnapshot
 from backend.services.anonymize import round_up_to_100
+
+
+_NET_WORTH_HISTORY = [
+    # (year, month, stocks, real_estate, income)
+    (2023, 1, 68000, 450000, 170000),
+    (2023, 2, 71000, 451000, 170000),
+    (2023, 3, 75000, 451000, 170000),
+    (2023, 4, 73000, 452000, 170000),
+    (2023, 5, 69000, 453000, 170000),
+    (2023, 6, 74000, 453000, 171000),
+    (2023, 7, 82000, 454000, 171000),
+    (2023, 8, 79000, 455000, 171000),
+    (2023, 9, 77000, 456000, 172000),
+    (2023, 10, 80000, 457000, 172000),
+    (2023, 11, 90000, 457000, 172000),
+    (2023, 12, 95000, 458000, 173000),
+    (2024, 1, 102000, 459000, 173000),
+    (2024, 2, 110000, 460000, 174000),
+    (2024, 3, 115000, 461000, 174000),
+    (2024, 4, 118000, 462000, 175000),
+    (2024, 5, 120000, 463000, 175000),
+    (2024, 6, 125000, 464000, 176000),
+    (2024, 7, 130000, 465000, 176000),
+    (2024, 8, 128000, 466000, 177000),
+    (2024, 9, 135000, 467000, 177000),
+    (2024, 10, 145000, 468000, 178000),
+    (2024, 11, 155000, 469000, 178000),
+    (2024, 12, 162000, 470000, 179000),
+    (2025, 1, 155000, 471000, 179000),
+    (2025, 2, 160000, 473000, 179000),
+    (2025, 3, 165000, 476000, 179000),
+    (2025, 4, 170000, 479000, 180000),
+    (2025, 5, 168000, 482000, 180000),
+    (2025, 6, 172000, 485000, 180000),
+    (2025, 7, 175000, 488000, 180000),
+    (2025, 8, 178000, 490000, 180000),
+    (2025, 9, 176000, 493000, 180000),
+    (2025, 10, 179000, 496000, 180000),
+    (2025, 11, 182000, 499000, 180000),
+    (2025, 12, 180000, 502000, 180000),
+    (2026, 1, 183000, 504000, 180000),
+    (2026, 2, 181000, 506000, 180000),
+    (2026, 3, 180000, 508000, 180000),
+    (2026, 4, 181000, 510000, 180000),
+]
 
 
 def seed():
     db = SessionLocal()
     try:
+        db.query(NetWorthSnapshot).delete()
         db.query(RealEstate).delete()
         db.query(Transaction).delete()
         db.query(Position).delete()
@@ -120,6 +166,17 @@ def seed():
             depreciation_taken=0,
             mortgage_interest_paid=0,
         ))
+
+        for year, month, stocks, re_val, income in _NET_WORTH_HISTORY:
+            total = stocks + re_val + income
+            db.add(NetWorthSnapshot(
+                user_id=uid,
+                snapshot_date=date(year, month, 1),
+                stocks_value=stocks,
+                real_estate_value=re_val,
+                income_value=income,
+                total_net_worth=total,
+            ))
 
         db.commit()
     finally:

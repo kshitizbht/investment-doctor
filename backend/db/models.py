@@ -65,6 +65,17 @@ class RealEstate(Base):
     mortgage_interest_paid = Column(Integer, nullable=False, default=0)
 
 
+class NetWorthSnapshot(Base):
+    __tablename__ = "net_worth_snapshots"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False)
+    snapshot_date = Column(Date, nullable=False)
+    stocks_value = Column(Integer, nullable=False, default=0)
+    real_estate_value = Column(Integer, nullable=False, default=0)
+    income_value = Column(Integer, nullable=False, default=0)
+    total_net_worth = Column(Integer, nullable=False, default=0)
+
+
 class Upload(Base):
     __tablename__ = "uploads"
     id = Column(Integer, primary_key=True, autoincrement=True)

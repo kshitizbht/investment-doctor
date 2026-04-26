@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import type { InsightsResponse, PositionInput, SimulateRequest } from "@/lib/api";
+import type { InsightsResponse, PositionInput, RealEstateInput, SimulateRequest } from "@/lib/api";
 import { simulateInsights } from "@/lib/api";
 import DashboardCards from "@/components/DashboardCards";
+import AskClaude from "@/components/AskClaude";
 
 // ─── Demo defaults — mirrors backend/db/seed.py ────────────────────────────
 const DEMO_DEFAULTS: SimulateRequest = {
@@ -30,15 +31,28 @@ const DEMO_DEFAULTS: SimulateRequest = {
     { asset_type: "crypto", ticker_or_name: "SOL",  action: "buy",  quantity: 500, price_per_unit: 120, total_proceeds: 0,     total_cost_basis: 60000, transaction_date: "2024-07-01" },
     { asset_type: "crypto", ticker_or_name: "SOL",  action: "sell", quantity: 500, price_per_unit: 145, total_proceeds: 72500, total_cost_basis: 60000, transaction_date: "2024-11-20" },
   ],
-  real_estate: {
-    label: "Rental - SF Condo",
-    purchase_price: 450000,
-    purchase_date: "2018-01-01",
-    current_estimated_value: 510000,
-    annual_rental_income: 24000,
-    depreciation_taken: 0,
-    mortgage_interest_paid: 0,
-  },
+  real_estate_list: [
+    {
+      label: "Rental - SF Condo",
+      purchase_price: 450000,
+      purchase_date: "2018-01-01",
+      current_estimated_value: 510000,
+      annual_rental_income: 24000,
+      depreciation_taken: 0,
+      mortgage_interest_paid: 0,
+    },
+  ],
+};
+
+const ZERO_STATE: SimulateRequest = {
+  filing_status: "single",
+  state: "CA",
+  wages: 0,
+  federal_tax_withheld: 0,
+  state_tax_withheld: 0,
+  positions: [],
+  transactions: [],
+  real_estate_list: [],
 };
 
 // ─── Input styles ──────────────────────────────────────────────────────────
@@ -139,17 +153,18 @@ export default function Calculator() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Debounced simulate
+  // Debounced simulate — AbortController cancels any in-flight request on re-type
   useEffect(() => {
+    const controller = new AbortController();
     const t = setTimeout(() => {
       setLoading(true);
       setError(null);
-      simulateInsights(form)
+      simulateInsights(form, controller.signal)
         .then(setResults)
-        .catch((e) => setError(e.message))
+        .catch((e) => { if (e.name !== "AbortError") setError(e.message); })
         .finally(() => setLoading(false));
     }, 350);
-    return () => clearTimeout(t);
+    return () => { clearTimeout(t); controller.abort(); };
   }, [form]);
 
   const updatePos = useCallback((i: number, patch: Partial<PositionInput>) => {
@@ -159,8 +174,46 @@ export default function Calculator() {
     }));
   }, []);
 
-  const updateRE = useCallback((patch: Partial<NonNullable<SimulateRequest["real_estate"]>>) => {
-    setForm((f) => ({ ...f, real_estate: { ...f.real_estate!, ...patch } }));
+  const removePos = useCallback((i: number) => {
+    setForm((f) => ({ ...f, positions: f.positions.filter((_, idx) => idx !== i) }));
+  }, []);
+
+  const addPos = useCallback(() => {
+    const today = new Date().toISOString().split("T")[0];
+    setForm((f) => ({
+      ...f,
+      positions: [
+        ...f.positions,
+        { asset_type: "stock", ticker_or_name: "", quantity: 1, cost_basis_per_unit: 0, current_price: 0, purchase_date: today },
+      ],
+    }));
+  }, []);
+
+  const cycleType = useCallback((i: number, current: string) => {
+    const types = ["stock", "crypto", "option"];
+    const next = types[(types.indexOf(current) + 1) % types.length];
+    updatePos(i, { asset_type: next });
+  }, [updatePos]);
+
+  const updateRE = useCallback((i: number, patch: Partial<RealEstateInput>) => {
+    setForm((f) => ({
+      ...f,
+      real_estate_list: f.real_estate_list.map((re, idx) => (idx === i ? { ...re, ...patch } : re)),
+    }));
+  }, []);
+
+  const removeRE = useCallback((i: number) => {
+    setForm((f) => ({ ...f, real_estate_list: f.real_estate_list.filter((_, idx) => idx !== i) }));
+  }, []);
+
+  const addRE = useCallback(() => {
+    setForm((f) => ({
+      ...f,
+      real_estate_list: [
+        ...f.real_estate_list,
+        { label: "", purchase_price: 0, purchase_date: "2020-01-01", current_estimated_value: 0, annual_rental_income: 0, depreciation_taken: 0, mortgage_interest_paid: 0 },
+      ],
+    }));
   }, []);
 
   const labelStyle: React.CSSProperties = {
@@ -223,120 +276,194 @@ export default function Calculator() {
               {/* Column headers */}
               <div
                 className="grid gap-1 mb-1 px-1"
-                style={{ gridTemplateColumns: "52px 1fr 56px 64px 64px" }}
+                style={{ gridTemplateColumns: "14px 48px 1fr 52px 58px 58px" }}
               >
-                {["Ticker", "Qty", "Cost", "Price", "Date"].map((h) => (
+                {["", "Ticker", "Qty", "Mkt$", "Basis", "Date"].map((h) => (
                   <span key={h} style={labelStyle}>{h}</span>
                 ))}
               </div>
 
-              {form.positions.map((pos, i) => (
-                <div
-                  key={i}
-                  className="grid gap-1 mb-1.5 px-1 py-1.5 rounded"
-                  style={{ gridTemplateColumns: "52px 1fr 56px 64px 64px", background: "rgba(255,255,255,0.02)" }}
-                >
-                  {/* Ticker (read-only label) */}
-                  <div className="flex items-center">
-                    <span
-                      className="text-xs font-mono font-bold truncate"
-                      style={{ color: pos.asset_type === "stock" ? "#F5A623" : pos.asset_type === "crypto" ? "#FF4455" : "#00C87C" }}
+              {form.positions.map((pos, i) => {
+                const typeColor = pos.asset_type === "stock" ? "#F5A623" : pos.asset_type === "crypto" ? "#FF4455" : "#00C87C";
+                return (
+                  <div
+                    key={i}
+                    className="group grid gap-1 mb-1.5 px-1 py-1.5 rounded relative"
+                    style={{ gridTemplateColumns: "14px 48px 1fr 52px 58px 58px", background: "rgba(255,255,255,0.02)" }}
+                  >
+                    {/* Asset type dot — click to cycle */}
+                    <button
+                      onClick={() => cycleType(i, pos.asset_type)}
+                      title={`Type: ${pos.asset_type} (click to change)`}
+                      className="flex items-center justify-center self-center"
                     >
-                      {pos.ticker_or_name}
-                    </span>
+                      <div className="w-2 h-2 rounded-full transition-all" style={{ background: typeColor }} />
+                    </button>
+
+                    {/* Ticker — editable */}
+                    <input
+                      type="text"
+                      value={pos.ticker_or_name}
+                      onChange={(e) => updatePos(i, { ticker_or_name: e.target.value.toUpperCase() })}
+                      placeholder="TICK"
+                      className="w-full rounded px-1 py-1 outline-none border text-xs font-mono font-bold uppercase"
+                      style={{
+                        background: "rgba(255,255,255,0.04)",
+                        borderColor: "rgba(255,255,255,0.08)",
+                        color: typeColor,
+                      }}
+                    />
+
+                    {/* Qty */}
+                    <MiniNumInput value={pos.quantity} onChange={(v) => updatePos(i, { quantity: v })} step={1} />
+
+                    {/* Current Market Price (Mkt$) */}
+                    <MiniNumInput value={pos.current_price} onChange={(v) => updatePos(i, { current_price: v })} step={1} />
+
+                    {/* Cost Basis (Basis) */}
+                    <MiniNumInput value={pos.cost_basis_per_unit} onChange={(v) => updatePos(i, { cost_basis_per_unit: v })} step={1} />
+
+                    {/* Purchase Date */}
+                    <input
+                      type="date"
+                      value={pos.purchase_date}
+                      onChange={(e) => updatePos(i, { purchase_date: e.target.value })}
+                      className="w-full text-xs font-mono rounded px-1 py-1 outline-none border"
+                      style={{
+                        background: "rgba(255,255,255,0.04)",
+                        borderColor: "rgba(255,255,255,0.08)",
+                        color: "var(--text-secondary)",
+                        fontSize: "10px",
+                      }}
+                    />
+
+                    {/* Delete button — hover overlay */}
+                    <button
+                      onClick={() => removePos(i)}
+                      className="absolute -right-1 -top-1 flex items-center justify-center w-4 h-4 rounded-full text-xs leading-none opacity-0 group-hover:opacity-100 transition-opacity"
+                      style={{ background: "rgba(255,68,85,0.85)", color: "#fff", fontSize: "10px" }}
+                      title="Remove position"
+                    >
+                      ×
+                    </button>
                   </div>
+                );
+              })}
 
-                  {/* Qty */}
-                  <MiniNumInput
-                    value={pos.quantity}
-                    onChange={(v) => updatePos(i, { quantity: v })}
-                    step={1}
-                  />
-
-                  {/* Cost Basis */}
-                  <MiniNumInput
-                    value={pos.cost_basis_per_unit}
-                    onChange={(v) => updatePos(i, { cost_basis_per_unit: v })}
-                    step={1}
-                  />
-
-                  {/* Current Price */}
-                  <MiniNumInput
-                    value={pos.current_price}
-                    onChange={(v) => updatePos(i, { current_price: v })}
-                    step={1}
-                  />
-
-                  {/* Purchase Date */}
-                  <input
-                    type="date"
-                    value={pos.purchase_date}
-                    onChange={(e) => updatePos(i, { purchase_date: e.target.value })}
-                    className="w-full text-xs font-mono rounded px-1 py-1 outline-none border"
-                    style={{
-                      background: "rgba(255,255,255,0.04)",
-                      borderColor: "rgba(255,255,255,0.1)",
-                      color: "var(--text-secondary)",
-                      fontSize: "10px",
-                    }}
-                  />
-                </div>
-              ))}
+              {/* Add Position button */}
+              <button
+                onClick={addPos}
+                className="mt-2 w-full rounded-lg py-1.5 text-xs font-semibold font-display uppercase tracking-wider transition-colors duration-150 flex items-center justify-center gap-1"
+                style={{
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px dashed rgba(255,255,255,0.15)",
+                  color: "var(--text-muted)",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(245,166,35,0.4)";
+                  (e.currentTarget as HTMLButtonElement).style.color = "var(--accent)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,255,255,0.15)";
+                  (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)";
+                }}
+              >
+                + Add Position
+              </button>
 
               <p className="mt-2 px-1 text-xs" style={{ color: "var(--text-muted)" }}>
-                Realized transactions (MSFT, COIN, SOL) are included automatically.
+                Click the color dot to cycle type (stock/crypto/option).
               </p>
             </div>
           </details>
 
           {/* Real Estate */}
-          {form.real_estate && (
-            <details open className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-              <SectionHeader title="Real Estate" />
-              <div className="px-3 pb-3 pt-1 space-y-3">
-                <Field label="Purchase Price ($)">
-                  <NumInput
-                    value={form.real_estate.purchase_price}
-                    onChange={(v) => updateRE({ purchase_price: v })}
-                    step={5000}
-                  />
-                </Field>
-                <Field label="Current Value ($)">
-                  <NumInput
-                    value={form.real_estate.current_estimated_value}
-                    onChange={(v) => updateRE({ current_estimated_value: v })}
-                    step={5000}
-                  />
-                </Field>
-                <Field label="Annual Rental Income ($)">
-                  <NumInput
-                    value={form.real_estate.annual_rental_income}
-                    onChange={(v) => updateRE({ annual_rental_income: v })}
-                    step={500}
-                  />
-                </Field>
-              </div>
-            </details>
-          )}
+          <details open className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+            <SectionHeader title="Real Estate" />
+            <div className="px-2 pb-3 pt-1 space-y-2">
+              {form.real_estate_list.length === 0 && (
+                <p className="px-1 text-xs" style={{ color: "var(--text-muted)" }}>No properties added.</p>
+              )}
 
-          {/* Reset */}
-          <button
-            onClick={() => setForm(DEMO_DEFAULTS)}
-            className="w-full mt-2 rounded-lg py-2 text-xs font-semibold font-display uppercase tracking-wider transition-colors duration-200"
-            style={{
-              background: "rgba(245,166,35,0.07)",
-              border: "1px solid rgba(245,166,35,0.2)",
-              color: "var(--accent)",
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "rgba(245,166,35,0.14)";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "rgba(245,166,35,0.07)";
-            }}
-          >
-            ↺ Reset to Demo
-          </button>
+              {form.real_estate_list.map((re, i) => (
+                <div
+                  key={i}
+                  className="group relative rounded-lg px-3 py-2.5 space-y-2"
+                  style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}
+                >
+                  {/* Label */}
+                  <input
+                    type="text"
+                    value={re.label}
+                    onChange={(e) => updateRE(i, { label: e.target.value })}
+                    placeholder="Property label"
+                    className="w-full text-xs font-mono rounded px-2 py-1 outline-none border"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      borderColor: "rgba(255,255,255,0.08)",
+                      color: "var(--text-primary)",
+                    }}
+                  />
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Purchase ($)">
+                      <MiniNumInput value={re.purchase_price} onChange={(v) => updateRE(i, { purchase_price: v })} step={5000} />
+                    </Field>
+                    <Field label="Value ($)">
+                      <MiniNumInput value={re.current_estimated_value} onChange={(v) => updateRE(i, { current_estimated_value: v })} step={5000} />
+                    </Field>
+                  </div>
+
+                  <Field label="Annual Rental ($)">
+                    <MiniNumInput value={re.annual_rental_income} onChange={(v) => updateRE(i, { annual_rental_income: v })} step={500} />
+                  </Field>
+
+                  {/* Delete — hover overlay */}
+                  <button
+                    onClick={() => removeRE(i)}
+                    className="absolute -right-1 -top-1 flex items-center justify-center w-4 h-4 rounded-full text-xs leading-none opacity-0 group-hover:opacity-100 transition-opacity"
+                    style={{ background: "rgba(255,68,85,0.85)", color: "#fff", fontSize: "10px" }}
+                    title="Remove property"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+
+              <button
+                onClick={addRE}
+                className="w-full rounded-lg py-1.5 text-xs font-semibold font-display uppercase tracking-wider transition-colors duration-150 flex items-center justify-center gap-1"
+                style={{
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px dashed rgba(255,255,255,0.15)",
+                  color: "var(--text-muted)",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(0,200,124,0.4)";
+                  (e.currentTarget as HTMLButtonElement).style.color = "#00C87C";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,255,255,0.15)";
+                  (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)";
+                }}
+              >
+                + Add Property
+              </button>
+            </div>
+          </details>
+
+          {/* Action buttons */}
+          <div className="grid grid-cols-2 gap-2 mt-2">
+            <ActionBtn
+              onClick={() => setForm((f) => ({ ...ZERO_STATE, filing_status: f.filing_status, state: f.state }))}
+              variant="danger"
+            >
+              ✕ Clear All
+            </ActionBtn>
+            <ActionBtn onClick={() => setForm(DEMO_DEFAULTS)} variant="accent">
+              ↺ Reset Demo
+            </ActionBtn>
+          </div>
         </div>
       </aside>
 
@@ -379,7 +506,10 @@ export default function Calculator() {
         )}
 
         {results ? (
-          <DashboardCards data={results} />
+          <div className="space-y-4">
+            <DashboardCards data={results} />
+            <AskClaude snapshot={results} />
+          </div>
         ) : !error ? (
           <div className="flex h-40 items-center justify-center">
             <div
@@ -390,6 +520,32 @@ export default function Calculator() {
         ) : null}
       </main>
     </div>
+  );
+}
+
+function ActionBtn({
+  onClick,
+  variant,
+  children,
+}: {
+  onClick: () => void;
+  variant: "accent" | "danger";
+  children: React.ReactNode;
+}) {
+  const base = variant === "accent"
+    ? { bg: "rgba(245,166,35,0.07)", border: "1px solid rgba(245,166,35,0.2)", color: "var(--accent)", hoverBg: "rgba(245,166,35,0.14)" }
+    : { bg: "rgba(255,68,85,0.06)", border: "1px solid rgba(255,68,85,0.2)", color: "var(--negative)", hoverBg: "rgba(255,68,85,0.12)" };
+
+  return (
+    <button
+      onClick={onClick}
+      className="rounded-lg py-2 text-xs font-semibold font-display uppercase tracking-wider transition-colors duration-200"
+      style={{ background: base.bg, border: base.border, color: base.color }}
+      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = base.hoverBg; }}
+      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = base.bg; }}
+    >
+      {children}
+    </button>
   );
 }
 

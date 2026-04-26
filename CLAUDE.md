@@ -13,20 +13,44 @@ The UI has 3 tabs (all at `http://localhost:3000`):
 ---
 
 ## Current State
-**Phase 1 complete + 3-Tab UI added (post-Step 9 feature)**
+**Phase 1 complete + 3-Tab UI + Dashboard Enhancements + Ask Claude feature**
 
 All backend code, 33/33 tests pass against MySQL, and frontend builds clean.
 MySQL manually installed at /usr/local/mysql-9.7.0-macos15-arm64/ with root/P455w0rd (stored in .env).
 Schema applied, seed loaded, all verification gates (Steps 1–9) pass cleanly.
 
-### Recent feature: 3-Tab UI + `/api/simulate`
-- Added `backend/routers/simulate.py` — `POST /api/simulate`, SQLite in-memory per request, same response shape as `/api/insights`
-- Redesigned frontend with "Terminal Intelligence" dark theme: `#070B12` bg, amber `#F5A623` accent, Syne + Space Mono + DM Sans fonts, dot-grid CSS backdrop, staggered card animations
-- Added `TabNav`, `DashboardCards`, `Calculator`, `AccountPlaceholder` components
-- `Calculator.tsx` contains `DEMO_DEFAULTS` constant that mirrors `backend/db/seed.py` exactly — keep these in sync if seed data changes
-- Plan saved at `docs/plan-three-tabs.md`
+### Feature batch: Dashboard enhancements + Calculator improvements
 
-Note on seed data deviations from PLAN.md scenario:
+**New cards:**
+- `NetWorthCard` — full-width, above the card grid. Shows total net worth, a color-coded breakdown bar (stocks/RE/income), and a pure-SVG line chart with hover tooltip. Historical data comes from `net_worth_snapshots` table (40 monthly rows seeded Jan 2023–Apr 2026).
+- `UnrealizedGainsCard` — inserted between Capital Gains and Harvesting cards. Per-type rows + gains-vs-losses summary bar.
+
+**Redesigned cards:**
+- `CapitalGainsCard` — ST/LT in 2-col grid with background boxes; Net Realized as full-width highlighted row; per-type breakdown rows.
+- `TaxSummaryCard` — AGI as full-width amber box; Federal Bracket | State Bracket in 2-col grid; Est. Federal Tax | Est. State Tax in 2-col grid.
+
+**Calculator improvements:**
+- Add/remove individual open positions (click colored dot to cycle type: stock→crypto→option)
+- Add/remove multiple real estate properties
+- "Clear All" button (zeroes everything) + "Reset Demo" button
+- Column order: `Qty | Mkt$ | Basis` (Mkt$ before Basis to eliminate confusion)
+- AbortController cancels stale in-flight simulate requests on re-type
+
+**Backend additions:**
+- `net_worth_snapshots` table + `NetWorthSnapshot` SQLAlchemy model
+- 40-month historical net worth data seeded in `seed.py`
+- `compute_net_worth()`, `net_worth_history()`, `state_bracket_pct()` in `tax_engine.py`
+- `GET /api/net-worth` endpoint (`backend/routers/net_worth.py`)
+- `real_estate_list: List[RealEstateInput]` (was single optional) in simulate + frontend
+- State bracket lookup replaces hardcoded CA rate in both `insights.py` and `simulate.py`
+
+### Feature: Ask Claude (`POST /api/ask-claude`)
+- `backend/routers/ask_claude.py` — streams Claude's response via SSE using `StreamingResponse`; reads `ANTHROPIC_API_KEY` from `.env`; uses `claude-opus-4-7` with a tax-advisor system prompt; builds a full structured prompt from the snapshot numbers (AGI, brackets, realized/unrealized gains, harvesting opps, holding-period alerts)
+- `frontend/components/AskClaude.tsx` — collapsible panel at the bottom of Calculator right panel; 5 preset question chips + custom textarea (Enter to submit); amber streaming cursor animation; AbortController cancels previous request when a new question fires
+- `anthropic>=0.30.0` added to `requirements.txt`
+- **Required:** add `ANTHROPIC_API_KEY=sk-ant-...` to `.env`, then restart backend
+
+### Seed data deviations from PLAN.md scenario
 - AMZN qty=100 (not 10) — 100×(-$5) = -$500 matches expected unrealized loss
 - NVDA current_price=$929 (not $480) — 20×$529×17% = ~$1,800 matches expected tax saving
 - SOL appears as realized transactions (bought Jul 2024 @ $120, sold Nov 2024 @ $145)
@@ -104,15 +128,24 @@ These apply to every file you write. No exceptions.
 | `backend/routers/simulate.py` | `POST /api/simulate` — SQLite in-memory, same response shape |
 | `frontend/app/page.tsx` | Tab controller (Demo / Calculator / My Account) |
 | `frontend/components/TabNav.tsx` | Fixed header with 3 tabs, amber underline |
-| `frontend/components/DashboardCards.tsx` | Shared 5-card grid; used by Demo tab and Calculator right panel |
+| `frontend/components/DashboardCards.tsx` | Shared card grid (7 cards); used by Demo tab and Calculator right panel |
 | `frontend/components/Calculator.tsx` | Sidebar form + debounced simulate; `DEMO_DEFAULTS` mirrors seed.py |
+| `frontend/components/AskClaude.tsx` | Collapsible AI advisor panel — SSE streaming from `/api/ask-claude` |
 | `frontend/components/AccountPlaceholder.tsx` | Coming soon placeholder |
-| `frontend/components/cards/` | 5 card components (dark-themed) |
+| `frontend/components/cards/` | 7 card components: NetWorth, TaxSummary, CapitalGains, UnrealizedGains, Harvesting, HoldingPeriod, AssetBreakdown |
 | `frontend/lib/api.ts` | API client — `fetchInsights()`, `simulateInsights()`, all TS types |
+| `backend/routers/ask_claude.py` | `POST /api/ask-claude` — SSE streaming endpoint, Anthropic SDK, reads `ANTHROPIC_API_KEY` from `.env` |
+| `backend/routers/net_worth.py` | `GET /api/net-worth` — current + historical net worth |
 | `archive/parse_pdf.py` | Reference pdfplumber parser |
 
 ### Python environment note
-Use `pytest` directly (on PATH at `/Library/Frameworks/Python.framework/Versions/3.12/bin/pytest`). Do NOT use `python` or `python3` — brew installed Python 3.14 which lacks the project's packages.
+Use `/Library/Frameworks/Python.framework/Versions/3.12/bin/pytest` directly. Do NOT use bare `python` or `python3` — brew installed Python 3.14 which lacks the project's packages. Use `/Library/Frameworks/Python.framework/Versions/3.12/bin/python3` when a Python invocation is needed.
+
+### .env keys required
+```
+MYSQL_PASSWORD=P455w0rd
+ANTHROPIC_API_KEY=sk-ant-...   # required for Ask Claude feature
+```
 
 ---
 

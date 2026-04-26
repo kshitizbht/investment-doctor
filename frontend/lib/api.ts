@@ -3,6 +3,7 @@ const API_BASE = "http://localhost:8000";
 export interface TaxSnapshot {
   agi: number;
   federal_bracket_pct: number;
+  state_bracket_pct: number;
   estimated_federal_tax: number;
   estimated_state_tax: number;
 }
@@ -58,12 +59,29 @@ export interface AssetBreakdown {
   };
 }
 
+export interface NetWorthCurrent {
+  stocks_value: number;
+  real_estate_value: number;
+  income_value: number;
+  total: number;
+}
+
+export interface NetWorthPoint {
+  date: string;
+  stocks: number;
+  real_estate: number;
+  income: number;
+  total: number;
+}
+
 export interface InsightsResponse {
   tax_snapshot: TaxSnapshot;
   capital_gains: CapitalGains;
   harvesting: Harvesting;
   holding_period_alerts: HoldingPeriodAlert[];
   asset_breakdown: AssetBreakdown;
+  net_worth: NetWorthCurrent;
+  net_worth_history: NetWorthPoint[];
 }
 
 export async function fetchInsights(): Promise<InsightsResponse> {
@@ -115,14 +133,15 @@ export interface SimulateRequest {
   state_tax_withheld: number;
   positions: PositionInput[];
   transactions: TransactionInput[];
-  real_estate?: RealEstateInput;
+  real_estate_list: RealEstateInput[];
 }
 
-export async function simulateInsights(req: SimulateRequest): Promise<InsightsResponse> {
+export async function simulateInsights(req: SimulateRequest, signal?: AbortSignal): Promise<InsightsResponse> {
   const res = await fetch(`${API_BASE}/api/simulate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
+    signal,
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
