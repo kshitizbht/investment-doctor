@@ -171,16 +171,18 @@ def simulate_insights(req: SimulateRequest):
 
         # ── Base data from DB ────────────────────────────────────────────────
         gains = realized_gains(uid, db)
-        harvest = harvesting_opportunities(uid, db)
-        alerts = holding_period_alerts(uid, db)
         breakdown = asset_breakdown(uid, db)
         nw = compute_net_worth(uid, db)
+        harvest = harvesting_opportunities(uid, db)
 
         re_rows = db.query(RealEstate).filter_by(user_id=uid).all()
         total_rental = sum(int(re.annual_rental_income) for re in re_rows)
         total_mortgage_interest = sum(int(re.mortgage_interest_paid) for re in re_rows)
 
-        # ── Extended AGI ─────────────────────────────────────────────────────
+        # ── RSU vested income (needed for AGI before full analysis) ──────────
+        rsu_income = sum(int(g.shares_vested_ytd * g.fmv_at_vest) for g in req.rsu_grants)
+
+        # ── Extended AGI (includes RSU ordinary income) ──────────────────────
         agi = compute_agi_extended(
             wages=round_up_to_100(req.wages),
             net_gains=gains["net_realized"],
@@ -191,6 +193,7 @@ def simulate_insights(req: SimulateRequest):
             hsa=req.hsa_contribution,
             ira=req.ira_contribution,
             capital_loss_carryforward=req.capital_loss_carryforward,
+            rsu_income=rsu_income,
         )
 
         # ── Standard vs itemized deduction ───────────────────────────────────
@@ -215,11 +218,19 @@ def simulate_insights(req: SimulateRequest):
         # ── NIIT & Medicare surtax ───────────────────────────────────────────
         net_investment_income = gains["short_term_realized"] + gains["long_term_realized"] + total_rental + req.qualified_dividends
         niit = compute_niit(net_investment_income, agi, req.filing_status)
-        total_wages = round_up_to_100(req.wages) + req.bonus
+        # RSU vesting is W2 compensation subject to the 0.9% Medicare surtax
+        total_wages = round_up_to_100(req.wages) + req.bonus + rsu_income
         medicare_surtax = compute_medicare_surtax(total_wages, req.filing_status)
 
         # ── Marginal rate stack ───────────────────────────────────────────────
         rate_stack = marginal_rate_stack(agi, total_wages, net_investment_income, req.filing_status, req.state)
+
+        # ── Holding period alerts (uses corrected AGI + filing status) ───────
+        alerts = holding_period_alerts(uid, db, agi_override=agi, filing_status=req.filing_status)
+
+        # ── Harvesting: override savings estimate with combined federal+state rate
+        combined_harvest_rate = (rate_stack["federal_pct"] + rate_stack["state_pct"]) / 100.0
+        harvest["estimated_tax_savings"] = int(abs(harvest["total_harvestable_loss"]) * combined_harvest_rate)
 
         # ── RSU analysis ─────────────────────────────────────────────────────
         rsu_grants_list = [g.model_dump() for g in req.rsu_grants]
@@ -231,8 +242,7 @@ def simulate_insights(req: SimulateRequest):
             req.k401_contribution, req.hsa_contribution, req.ira_contribution, combined_rate
         )
 
-        # ── Income character ─────────────────────────────────────────────────
-        ltcg_rate_val = _ltcg_rate_fs(agi, req.filing_status)
+        # ── Income character (LTCG rate uses full stack incl. NIIT + state) ──
         income_char = compute_income_character(
             wages=round_up_to_100(req.wages),
             bonus=req.bonus,
@@ -242,7 +252,7 @@ def simulate_insights(req: SimulateRequest):
             qualified_dividends=req.qualified_dividends,
             rental=total_rental,
             ordinary_rate=rate_stack["total_ordinary_pct"] / 100.0,
-            ltcg_rate_val=ltcg_rate_val,
+            ltcg_rate_val=rate_stack["total_ltcg_pct"] / 100.0,
         )
 
         # ── Tax balance ───────────────────────────────────────────────────────

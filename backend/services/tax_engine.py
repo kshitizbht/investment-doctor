@@ -240,14 +240,19 @@ def harvesting_opportunities(user_id: int, db: Session) -> dict:
     }
 
 
-def holding_period_alerts(user_id: int, db: Session) -> list:
+def holding_period_alerts(
+    user_id: int,
+    db: Session,
+    agi_override: int = None,
+    filing_status: str = "single",
+) -> list:
     today = date.today()
     cutoff = today + timedelta(days=180)
 
-    agi = compute_agi(user_id, db)
-    bracket = federal_bracket(agi)
+    agi = agi_override if agi_override is not None else compute_agi(user_id, db)
+    bracket = federal_bracket(agi, filing_status)
     stcg_rate = bracket["rate"] / 100.0
-    ltcg_rate_val = _ltcg_rate(agi)
+    ltcg_rate_val = _ltcg_rate_fs(agi, filing_status)
     rate_diff = stcg_rate - ltcg_rate_val
 
     alerts = []
@@ -305,10 +310,12 @@ def asset_breakdown(user_id: int, db: Session) -> dict:
     type_keys = list(totals.keys())
 
     for i, key in enumerate(type_keys):
-        if i == len(type_keys) - 1:
+        if total_portfolio == 0:
+            pct = 0
+        elif i == len(type_keys) - 1:
             pct = remaining_pct
         else:
-            pct = round(totals[key]["market_value"] / total_portfolio * 100) if total_portfolio > 0 else 0
+            pct = round(totals[key]["market_value"] / total_portfolio * 100)
             remaining_pct -= pct
         result[key] = {
             "unrealized_gain_loss": totals[key]["unrealized_gain_loss"],
@@ -455,10 +462,11 @@ def compute_agi_extended(
     hsa: int = 0,
     ira: int = 0,
     capital_loss_carryforward: int = 0,
+    rsu_income: int = 0,
 ) -> int:
     """Extended AGI with pre-tax deductions and additional income sources."""
     adjusted_gains = max(net_gains - capital_loss_carryforward, -3000)
-    gross = wages + bonus + other_income + adjusted_gains + rental
+    gross = wages + bonus + other_income + adjusted_gains + rental + rsu_income
     pre_tax = k401 + hsa + ira
     return round_up_to_100(max(0, gross - pre_tax))
 
