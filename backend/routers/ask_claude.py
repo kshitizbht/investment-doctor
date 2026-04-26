@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import anthropic
 from dotenv import load_dotenv
@@ -28,7 +28,7 @@ def _get_client() -> anthropic.Anthropic:
     return _client
 
 
-def _build_prompt(snapshot: Dict[str, Any], question: str) -> str:
+def _build_snapshot_context(snapshot: Dict[str, Any]) -> str:
     ts = snapshot.get("tax_snapshot", {})
     cg = snapshot.get("capital_gains", {})
     harv = snapshot.get("harvesting", {})
@@ -64,8 +64,10 @@ def _build_prompt(snapshot: Dict[str, Any], question: str) -> str:
     for asset, vals in ab.items():
         gl = vals.get("unrealized_gain_loss", 0)
         sign = "+" if gl >= 0 else ""
-        lines.append(f"- {asset.capitalize()}: {sign}${gl:,.0f}  "
-                     f"({vals.get('pct_of_portfolio', 0):.1f}% of portfolio)")
+        lines.append(
+            f"- {asset.capitalize()}: {sign}${gl:,.0f}  "
+            f"({vals.get('pct_of_portfolio', 0):.1f}% of portfolio)"
+        )
 
     lines += [
         "",
@@ -77,20 +79,18 @@ def _build_prompt(snapshot: Dict[str, Any], question: str) -> str:
     opps = harv.get("opportunities", [])
     for o in opps[:5]:
         wash = " ⚠️ wash-sale risk" if o.get("wash_sale_risk") else ""
-        lines.append(f"  • {o['ticker_or_name']} ({o['asset_type']}): "
-                     f"-${abs(o['unrealized_loss']):,.0f}{wash}")
+        lines.append(
+            f"  • {o['ticker_or_name']} ({o['asset_type']}): "
+            f"-${abs(o['unrealized_loss']):,.0f}{wash}"
+        )
 
     if alerts:
         lines += ["", "### Holding-Period Alerts (approaching LTCG threshold)"]
         for a in alerts[:5]:
-            lines.append(f"  • {a['ticker_or_name']}: {a['days_until_ltcg']} days until LTCG — "
-                         f"waiting saves ~${a['estimated_tax_saving']:,.0f}")
-
-    lines += [
-        "",
-        "---",
-        f"**User question:** {question}",
-    ]
+            lines.append(
+                f"  • {a['ticker_or_name']}: {a['days_until_ltcg']} days until LTCG — "
+                f"waiting saves ~${a['estimated_tax_saving']:,.0f}"
+            )
 
     return "\n".join(lines)
 
@@ -98,27 +98,35 @@ def _build_prompt(snapshot: Dict[str, Any], question: str) -> str:
 class AskClaudeRequest(BaseModel):
     snapshot: Dict[str, Any]
     question: str
+    conversation_history: List[Dict[str, Any]] = []
 
 
 @router.post("/api/ask-claude")
 def ask_claude(req: AskClaudeRequest):
     client = _get_client()
-    prompt = _build_prompt(req.snapshot, req.question)
+    snapshot_context = _build_snapshot_context(req.snapshot)
+
+    system_prompt = (
+        "You are a knowledgeable US tax advisor analyzing a client's investment "
+        "and income snapshot. Provide concise, actionable advice focused on legal "
+        "tax reduction strategies. Be specific — reference the actual numbers from "
+        "the snapshot. Use plain language; avoid jargon. Format responses with "
+        "markdown: **bold** for key figures, bullet lists for options, numbered "
+        "steps for action sequences, ### headers to organize longer answers. "
+        "Do not disclaim that you are not a licensed advisor — the user understands "
+        "this is AI guidance.\n\n"
+        + snapshot_context
+    )
+
+    messages = list(req.conversation_history) + [{"role": "user", "content": req.question}]
 
     def token_stream():
         try:
             with client.messages.stream(
                 model="claude-opus-4-7",
-                max_tokens=1024,
-                system=(
-                    "You are a knowledgeable US tax advisor analyzing a client's investment "
-                    "and income snapshot. Provide concise, actionable advice focused on legal "
-                    "tax reduction strategies. Be specific — reference the actual numbers from "
-                    "the snapshot. Use plain language; avoid jargon. Format with short bullet "
-                    "points or numbered steps when listing actions. Do not disclaim that you "
-                    "are not a licensed advisor — the user understands this is AI guidance."
-                ),
-                messages=[{"role": "user", "content": prompt}],
+                max_tokens=2048,
+                system=system_prompt,
+                messages=messages,
             ) as stream:
                 for text in stream.text_stream:
                     yield f"data: {json.dumps({'text': text})}\n\n"
