@@ -49,13 +49,8 @@ def test_insights_status(client):
 
 def test_insights_keys(client):
     data = client.get("/api/insights").json()
-    assert set(data.keys()) == {
-        "tax_snapshot",
-        "capital_gains",
-        "harvesting",
-        "holding_period_alerts",
-        "asset_breakdown",
-    }
+    required = {"tax_snapshot", "capital_gains", "harvesting", "holding_period_alerts", "asset_breakdown"}
+    assert required.issubset(set(data.keys()))
 
 
 def test_tax_snapshot(client):

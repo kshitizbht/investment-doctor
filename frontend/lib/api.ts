@@ -74,6 +74,95 @@ export interface NetWorthPoint {
   total: number;
 }
 
+// ── New types ─────────────────────────────────────────────────────────────────
+
+export interface MarginalRateStack {
+  federal_pct: number;
+  niit_pct: number;
+  medicare_surtax_pct: number;
+  state_pct: number;
+  total_ordinary_pct: number;
+  total_ltcg_pct: number;
+  keep_per_1000_ordinary: number;
+  keep_per_1000_ltcg: number;
+}
+
+export interface TaxBalance {
+  estimated_federal_tax: number;
+  estimated_state_tax: number;
+  niit: number;
+  medicare_surtax: number;
+  estimated_total_tax: number;
+  total_withheld: number;
+  balance: number;
+  refund_or_owe: "refund" | "owe";
+  underpayment_risk: boolean;
+}
+
+export interface DeductionOptimizer {
+  standard_deduction: number;
+  itemized_total: number;
+  mortgage_interest: number;
+  salt_deductible: number;
+  salt_cap: number;
+  charitable: number;
+  use_itemized: boolean;
+  deduction_used: "standard" | "itemized";
+  deduction_amount: number;
+  additional_savings: number;
+}
+
+export interface RSUGrant {
+  ticker: string;
+  grant_type: string;
+  shares_vested_ytd: number;
+  fmv_at_vest: number;
+  vested_income: number;
+  supplemental_withheld: number;
+  actual_tax_owed: number;
+  withholding_gap: number;
+  retained_shares: number;
+  retained_value: number;
+  next_vest_date: string | null;
+  next_vest_shares: number;
+}
+
+export interface EquityAnalysis {
+  grants: RSUGrant[];
+  total_vested_income: number;
+  supplemental_withheld: number;
+  actual_tax_owed: number;
+  withholding_gap: number;
+  total_retained_value: number;
+}
+
+export interface RetirementOptimizer {
+  k401_contributed: number;
+  k401_limit: number;
+  k401_room: number;
+  k401_pct_used: number;
+  k401_tax_saving_if_maxed: number;
+  hsa_contributed: number;
+  hsa_limit: number;
+  hsa_room: number;
+  hsa_tax_saving_if_maxed: number;
+  ira_contributed: number;
+  ira_limit: number;
+  ira_room: number;
+}
+
+export interface IncomeCharacter {
+  w2_wages: number;
+  bonus: number;
+  rsu_vests: number;
+  short_term_gains: number;
+  long_term_gains: number;
+  qualified_dividends: number;
+  rental_income: number;
+  rate_ordinary_pct: number;
+  rate_ltcg_pct: number;
+}
+
 export interface InsightsResponse {
   tax_snapshot: TaxSnapshot;
   capital_gains: CapitalGains;
@@ -82,6 +171,13 @@ export interface InsightsResponse {
   asset_breakdown: AssetBreakdown;
   net_worth: NetWorthCurrent;
   net_worth_history: NetWorthPoint[];
+  // New sections (optional for backward compat)
+  marginal_rate_stack?: MarginalRateStack;
+  tax_balance?: TaxBalance;
+  deduction_optimizer?: DeductionOptimizer;
+  equity?: EquityAnalysis;
+  retirement?: RetirementOptimizer;
+  income_character?: IncomeCharacter;
 }
 
 export async function fetchInsights(): Promise<InsightsResponse> {
@@ -125,12 +221,40 @@ export interface RealEstateInput {
   mortgage_interest_paid: number;
 }
 
+export interface RSUGrantInput {
+  ticker: string;
+  grant_type: string;
+  shares_vested_ytd: number;
+  fmv_at_vest: number;
+  shares_sold_at_vest: number;
+  current_price: number;
+  next_vest_date?: string;
+  next_vest_shares: number;
+}
+
 export interface SimulateRequest {
   filing_status: string;
   state: string;
   wages: number;
   federal_tax_withheld: number;
   state_tax_withheld: number;
+  // Additional income
+  bonus: number;
+  other_income: number;
+  qualified_dividends: number;
+  // Pre-tax deductions
+  k401_contribution: number;
+  hsa_contribution: number;
+  ira_contribution: number;
+  // Deductions
+  capital_loss_carryforward: number;
+  charitable_donations: number;
+  property_tax_paid: number;
+  // Prior year
+  prior_year_agi: number;
+  // Equity
+  rsu_grants: RSUGrantInput[];
+  // Positions & transactions
   positions: PositionInput[];
   transactions: TransactionInput[];
   real_estate_list: RealEstateInput[];

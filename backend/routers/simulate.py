@@ -10,18 +10,28 @@ from backend.db.models import Base, Position, RealEstate, Transaction, User, W2I
 from backend.services.anonymize import round_up_to_100
 from backend.services.tax_engine import (
     asset_breakdown,
-    compute_agi,
+    compute_agi_extended,
+    compute_deduction_optimizer,
+    compute_income_character,
+    compute_medicare_surtax,
     compute_net_worth,
+    compute_niit,
+    compute_retirement_optimizer,
+    compute_rsu_analysis,
+    compute_tax_balance,
     federal_bracket,
+    federal_tax_with_ltcg,
     harvesting_opportunities,
     holding_period_alerts,
+    marginal_rate_stack,
     realized_gains,
+    standard_deduction,
     state_bracket_pct,
+    state_std_deduction,
+    _ltcg_rate_fs,
 )
 
 router = APIRouter()
-
-_CA_INCOME_TAX_RATE = 0.093
 
 
 class PositionInput(BaseModel):
@@ -57,12 +67,39 @@ class RealEstateInput(BaseModel):
     mortgage_interest_paid: int = 0
 
 
+class RSUGrantInput(BaseModel):
+    ticker: str = "RSU"
+    grant_type: str = "RSU"
+    shares_vested_ytd: int = 0
+    fmv_at_vest: float = 0.0
+    shares_sold_at_vest: int = 0
+    current_price: float = 0.0
+    next_vest_date: Optional[str] = None
+    next_vest_shares: int = 0
+
+
 class SimulateRequest(BaseModel):
     filing_status: str = "single"
     state: str = "CA"
     wages: int
     federal_tax_withheld: int = 0
     state_tax_withheld: int = 0
+    # Additional income
+    bonus: int = 0
+    other_income: int = 0
+    qualified_dividends: int = 0
+    # Pre-tax deductions
+    k401_contribution: int = 0
+    hsa_contribution: int = 0
+    ira_contribution: int = 0
+    # Deductions
+    capital_loss_carryforward: int = 0
+    charitable_donations: int = 0
+    property_tax_paid: int = 0
+    # Prior year (for safe harbor)
+    prior_year_agi: int = 0
+    # Equity & positions
+    rsu_grants: List[RSUGrantInput] = []
     positions: List[PositionInput] = []
     transactions: List[TransactionInput] = []
     real_estate_list: List[RealEstateInput] = []
@@ -132,19 +169,90 @@ def simulate_insights(req: SimulateRequest):
 
         db.commit()
 
-        agi = compute_agi(uid, db)
-        bracket = federal_bracket(agi, user.filing_status)
-        marginal_rate = bracket["rate"] / 100.0
-        s_bracket = state_bracket_pct(req.state)
-
-        federal_tax = int(agi * marginal_rate)
-        state_tax = int(agi * (s_bracket / 100.0))
-
+        # ── Base data from DB ────────────────────────────────────────────────
         gains = realized_gains(uid, db)
         harvest = harvesting_opportunities(uid, db)
         alerts = holding_period_alerts(uid, db)
         breakdown = asset_breakdown(uid, db)
         nw = compute_net_worth(uid, db)
+
+        re_rows = db.query(RealEstate).filter_by(user_id=uid).all()
+        total_rental = sum(int(re.annual_rental_income) for re in re_rows)
+        total_mortgage_interest = sum(int(re.mortgage_interest_paid) for re in re_rows)
+
+        # ── Extended AGI ─────────────────────────────────────────────────────
+        agi = compute_agi_extended(
+            wages=round_up_to_100(req.wages),
+            net_gains=gains["net_realized"],
+            rental=total_rental,
+            bonus=req.bonus,
+            other_income=req.other_income,
+            k401=req.k401_contribution,
+            hsa=req.hsa_contribution,
+            ira=req.ira_contribution,
+            capital_loss_carryforward=req.capital_loss_carryforward,
+        )
+
+        # ── Standard vs itemized deduction ───────────────────────────────────
+        deduction_info = compute_deduction_optimizer(
+            filing_status=req.filing_status,
+            mortgage_interest=total_mortgage_interest,
+            property_tax=req.property_tax_paid,
+            charitable=req.charitable_donations,
+        )
+        deduction_amount = deduction_info["deduction_amount"]
+
+        # ── Federal tax (bracket accumulation + LTCG stacking) ───────────────
+        taxable_income = max(0, agi - deduction_amount)
+        ltcg_eligible = gains["long_term_realized"] + req.qualified_dividends
+        federal_tax = federal_tax_with_ltcg(taxable_income, ltcg_eligible, req.filing_status)
+
+        # ── State tax ────────────────────────────────────────────────────────
+        s_bracket = state_bracket_pct(req.state)
+        state_taxable = max(0, agi - state_std_deduction(req.state))
+        state_tax = int(state_taxable * (s_bracket / 100.0))
+
+        # ── NIIT & Medicare surtax ───────────────────────────────────────────
+        net_investment_income = gains["short_term_realized"] + gains["long_term_realized"] + total_rental + req.qualified_dividends
+        niit = compute_niit(net_investment_income, agi, req.filing_status)
+        total_wages = round_up_to_100(req.wages) + req.bonus
+        medicare_surtax = compute_medicare_surtax(total_wages, req.filing_status)
+
+        # ── Marginal rate stack ───────────────────────────────────────────────
+        rate_stack = marginal_rate_stack(agi, total_wages, net_investment_income, req.filing_status, req.state)
+
+        # ── RSU analysis ─────────────────────────────────────────────────────
+        rsu_grants_list = [g.model_dump() for g in req.rsu_grants]
+        equity = compute_rsu_analysis(rsu_grants_list, rate_stack["federal_pct"] / 100.0)
+
+        # ── Retirement optimizer ─────────────────────────────────────────────
+        combined_rate = (rate_stack["federal_pct"] + rate_stack["state_pct"]) / 100.0
+        retirement = compute_retirement_optimizer(
+            req.k401_contribution, req.hsa_contribution, req.ira_contribution, combined_rate
+        )
+
+        # ── Income character ─────────────────────────────────────────────────
+        ltcg_rate_val = _ltcg_rate_fs(agi, req.filing_status)
+        income_char = compute_income_character(
+            wages=round_up_to_100(req.wages),
+            bonus=req.bonus,
+            rsu_income=equity["total_vested_income"],
+            stcg=gains["short_term_realized"],
+            ltcg=gains["long_term_realized"],
+            qualified_dividends=req.qualified_dividends,
+            rental=total_rental,
+            ordinary_rate=rate_stack["total_ordinary_pct"] / 100.0,
+            ltcg_rate_val=ltcg_rate_val,
+        )
+
+        # ── Tax balance ───────────────────────────────────────────────────────
+        tax_balance = compute_tax_balance(
+            federal_tax, state_tax, niit, medicare_surtax,
+            req.federal_tax_withheld, req.state_tax_withheld,
+        )
+
+        # Keep legacy bracket field for existing cards
+        bracket = federal_bracket(agi, req.filing_status)
 
         return {
             "tax_snapshot": {
@@ -165,6 +273,13 @@ def simulate_insights(req: SimulateRequest):
             "asset_breakdown": breakdown,
             "net_worth": nw,
             "net_worth_history": [],
+            # ── New sections ──────────────────────────────────────────────
+            "marginal_rate_stack": rate_stack,
+            "tax_balance": tax_balance,
+            "deduction_optimizer": deduction_info,
+            "equity": equity,
+            "retirement": retirement,
+            "income_character": income_char,
         }
     finally:
         db.close()

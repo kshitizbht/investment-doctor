@@ -64,10 +64,8 @@ def test_e2e_seed_insights(e2e_client):
 def test_e2e_insights_keys(e2e_client):
     client, _ = e2e_client
     data = client.get("/api/insights").json()
-    assert set(data.keys()) == {
-        "tax_snapshot", "capital_gains", "harvesting",
-        "holding_period_alerts", "asset_breakdown",
-    }
+    required = {"tax_snapshot", "capital_gains", "harvesting", "holding_period_alerts", "asset_breakdown"}
+    assert required.issubset(set(data.keys()))
 
 
 def test_e2e_upload_increases_row_count(e2e_client):

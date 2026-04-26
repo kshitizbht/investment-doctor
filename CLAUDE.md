@@ -13,11 +13,48 @@ The UI has 3 tabs (all at `http://localhost:3000`):
 ---
 
 ## Current State
-**Phase 1 complete + 3-Tab UI + Dashboard Enhancements + Ask Claude feature**
+**Phase 1 complete + 3-Tab UI + Dashboard Enhancements + Ask Claude + High-Income W2 Advisor**
 
 All backend code, 33/33 tests pass against MySQL, and frontend builds clean.
 MySQL manually installed at /usr/local/mysql-9.7.0-macos15-arm64/ with root/P455w0rd (stored in .env).
 Schema applied, seed loaded, all verification gates (Steps 1–9) pass cleanly.
+
+### Feature batch: High-Income W2 Advisor (latest)
+
+**Accuracy fixes in `tax_engine.py`:**
+- Bracket accumulation tax (`federal_tax_exact()`) — replaces wrong `AGI × marginal_rate`
+- Standard deduction subtracted before brackets (filing-status-aware, all 4 statuses)
+- NIIT 3.8% on net investment income when AGI > $200k/$250k (MFJ)
+- Medicare surtax 0.9% on wages above $200k/$250k
+- CA LTCG treated as ordinary income (no federal LTCG rates for CA)
+- Full filing-status bracket tables: single, MFJ, MFS, HOH
+
+**New tax engine functions (all additive — existing functions unchanged):**
+- `federal_tax_exact()`, `_ltcg_tax_stacked()`, `federal_tax_with_ltcg()`
+- `compute_niit()`, `compute_medicare_surtax()`, `compute_agi_extended()`
+- `marginal_rate_stack()`, `compute_rsu_analysis()`, `compute_retirement_optimizer()`
+- `compute_income_character()`, `compute_deduction_optimizer()`, `compute_tax_balance()`
+
+**New dashboard cards:**
+- `TaxBalanceCard` — owe/refund callout, full tax breakdown rows, underpayment warning
+- `MarginalRateCard` — stacked bar: federal + NIIT + Medicare surtax + state, for ordinary vs LTCG; "keep per $1000" callout
+- `EquityCard` — RSU vested income, supplemental withholding gap (amber/red), per-grant rows with next vest date
+- `RetirementCard` — progress bars for 401k/HSA/IRA, room remaining, tax savings if maxed
+- `IncomeCharacterCard` — horizontal bars per income stream, color-coded ordinary (amber) vs LTCG (green)
+- `TaxSummaryCard` updated — deduction optimizer inline (standard vs. itemized comparison)
+
+**Calculator new sidebar sections:**
+- **Equity Comp (RSU/ESPP)** — add/remove grants; ticker, shares vested, FMV at vest, shares sold at vest, current price, next vest
+- **Retirement** — 401k, HSA, IRA YTD contributions
+- **Deductions** — charitable donations, property tax paid (SALT)
+- **Income section expanded** — bonus, other income, qualified dividends, fed/state withheld (2-col)
+- **Real estate** — mortgage interest field added per property
+
+**Ask Claude upgrades:**
+- Multi-turn conversation with full history passed on each turn
+- Snapshot in system prompt (not repeated per message)
+- Inline markdown renderer (bold, code, headers, bullets, numbered lists, dividers)
+- Chat bubble UI, "new chat" button, reply count badge, quick-follow chips
 
 ### Feature batch: Dashboard enhancements + Calculator improvements
 
@@ -45,8 +82,8 @@ Schema applied, seed loaded, all verification gates (Steps 1–9) pass cleanly.
 - State bracket lookup replaces hardcoded CA rate in both `insights.py` and `simulate.py`
 
 ### Feature: Ask Claude (`POST /api/ask-claude`)
-- `backend/routers/ask_claude.py` — streams Claude's response via SSE using `StreamingResponse`; reads `ANTHROPIC_API_KEY` from `.env`; uses `claude-opus-4-7` with a tax-advisor system prompt; builds a full structured prompt from the snapshot numbers (AGI, brackets, realized/unrealized gains, harvesting opps, holding-period alerts)
-- `frontend/components/AskClaude.tsx` — collapsible panel at the bottom of Calculator right panel; 5 preset question chips + custom textarea (Enter to submit); amber streaming cursor animation; AbortController cancels previous request when a new question fires
+- `backend/routers/ask_claude.py` — SSE streaming, `claude-opus-4-7`, tax-advisor system prompt
+- `frontend/components/AskClaude.tsx` — collapsible panel, preset chips, amber cursor animation
 - `anthropic>=0.30.0` added to `requirements.txt`
 - **Required:** add `ANTHROPIC_API_KEY=sk-ant-...` to `.env`, then restart backend
 

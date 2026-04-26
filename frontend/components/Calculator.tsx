@@ -1,18 +1,44 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import type { InsightsResponse, PositionInput, RealEstateInput, SimulateRequest } from "@/lib/api";
+import type { InsightsResponse, PositionInput, RealEstateInput, RSUGrantInput, SimulateRequest } from "@/lib/api";
 import { simulateInsights } from "@/lib/api";
 import DashboardCards from "@/components/DashboardCards";
 import AskClaude from "@/components/AskClaude";
 
-// ─── Demo defaults — mirrors backend/db/seed.py ────────────────────────────
+// ─── Demo defaults — mirrors backend/db/seed.py + new fields ──────────────────
 const DEMO_DEFAULTS: SimulateRequest = {
   filing_status: "single",
   state: "CA",
   wages: 180000,
   federal_tax_withheld: 32000,
   state_tax_withheld: 14000,
+  // Additional income
+  bonus: 20000,
+  other_income: 0,
+  qualified_dividends: 0,
+  // Pre-tax deductions
+  k401_contribution: 11500,
+  hsa_contribution: 0,
+  ira_contribution: 0,
+  // Itemized deduction inputs
+  capital_loss_carryforward: 0,
+  charitable_donations: 2000,
+  property_tax_paid: 7000,
+  prior_year_agi: 195000,
+  // Equity
+  rsu_grants: [
+    {
+      ticker: "META",
+      grant_type: "RSU",
+      shares_vested_ytd: 100,
+      fmv_at_vest: 400,
+      shares_sold_at_vest: 22,
+      current_price: 480,
+      next_vest_date: "2026-09-01",
+      next_vest_shares: 50,
+    },
+  ],
   positions: [
     { asset_type: "stock",  ticker_or_name: "AAPL", quantity: 50,  cost_basis_per_unit: 150,   current_price: 220,  purchase_date: "2024-01-15" },
     { asset_type: "stock",  ticker_or_name: "TSLA", quantity: 30,  cost_basis_per_unit: 280,   current_price: 195,  purchase_date: "2024-01-20" },
@@ -50,12 +76,23 @@ const ZERO_STATE: SimulateRequest = {
   wages: 0,
   federal_tax_withheld: 0,
   state_tax_withheld: 0,
+  bonus: 0,
+  other_income: 0,
+  qualified_dividends: 0,
+  k401_contribution: 0,
+  hsa_contribution: 0,
+  ira_contribution: 0,
+  capital_loss_carryforward: 0,
+  charitable_donations: 0,
+  property_tax_paid: 0,
+  prior_year_agi: 0,
+  rsu_grants: [],
   positions: [],
   transactions: [],
   real_estate_list: [],
 };
 
-// ─── Input styles ──────────────────────────────────────────────────────────
+// ─── Input styles ──────────────────────────────────────────────────────────────
 const inputCls =
   "w-full bg-transparent text-sm font-mono rounded px-2 py-1 outline-none transition-colors duration-150 border";
 const inputStyle = {
@@ -68,13 +105,7 @@ const inputFocusStyle = {
   background: "rgba(245,166,35,0.04)",
 };
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
       <label className="text-xs" style={{ color: "var(--text-muted)", fontFamily: "var(--font-body)" }}>
@@ -85,15 +116,7 @@ function Field({
   );
 }
 
-function NumInput({
-  value,
-  onChange,
-  step = 1,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-  step?: number;
-}) {
+function NumInput({ value, onChange, step = 1 }: { value: number; onChange: (v: number) => void; step?: number }) {
   const [focused, setFocused] = useState(false);
   return (
     <input
@@ -109,15 +132,7 @@ function NumInput({
   );
 }
 
-function SelectInput({
-  value,
-  onChange,
-  options,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-}) {
+function SelectInput({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
   return (
     <select
       value={value}
@@ -146,14 +161,22 @@ function SectionHeader({ title }: { title: string }) {
   );
 }
 
-// ─── Main Calculator component ─────────────────────────────────────────────
+const labelStyle: React.CSSProperties = {
+  color: "var(--text-secondary)",
+  fontSize: "10px",
+  fontFamily: "var(--font-body)",
+  textTransform: "uppercase",
+  letterSpacing: "0.06em",
+  fontWeight: 600,
+};
+
+// ─── Main Calculator component ─────────────────────────────────────────────────
 export default function Calculator() {
   const [form, setForm] = useState<SimulateRequest>(DEMO_DEFAULTS);
   const [results, setResults] = useState<InsightsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Debounced simulate — AbortController cancels any in-flight request on re-type
   useEffect(() => {
     const controller = new AbortController();
     const t = setTimeout(() => {
@@ -167,63 +190,43 @@ export default function Calculator() {
     return () => { clearTimeout(t); controller.abort(); };
   }, [form]);
 
+  // ── Position handlers ──────────────────────────────────────────────────────
   const updatePos = useCallback((i: number, patch: Partial<PositionInput>) => {
-    setForm((f) => ({
-      ...f,
-      positions: f.positions.map((p, idx) => (idx === i ? { ...p, ...patch } : p)),
-    }));
+    setForm((f) => ({ ...f, positions: f.positions.map((p, idx) => (idx === i ? { ...p, ...patch } : p)) }));
   }, []);
-
   const removePos = useCallback((i: number) => {
     setForm((f) => ({ ...f, positions: f.positions.filter((_, idx) => idx !== i) }));
   }, []);
-
   const addPos = useCallback(() => {
     const today = new Date().toISOString().split("T")[0];
-    setForm((f) => ({
-      ...f,
-      positions: [
-        ...f.positions,
-        { asset_type: "stock", ticker_or_name: "", quantity: 1, cost_basis_per_unit: 0, current_price: 0, purchase_date: today },
-      ],
-    }));
+    setForm((f) => ({ ...f, positions: [...f.positions, { asset_type: "stock", ticker_or_name: "", quantity: 1, cost_basis_per_unit: 0, current_price: 0, purchase_date: today }] }));
   }, []);
-
   const cycleType = useCallback((i: number, current: string) => {
     const types = ["stock", "crypto", "option"];
-    const next = types[(types.indexOf(current) + 1) % types.length];
-    updatePos(i, { asset_type: next });
+    updatePos(i, { asset_type: types[(types.indexOf(current) + 1) % types.length] });
   }, [updatePos]);
 
+  // ── Real estate handlers ───────────────────────────────────────────────────
   const updateRE = useCallback((i: number, patch: Partial<RealEstateInput>) => {
-    setForm((f) => ({
-      ...f,
-      real_estate_list: f.real_estate_list.map((re, idx) => (idx === i ? { ...re, ...patch } : re)),
-    }));
+    setForm((f) => ({ ...f, real_estate_list: f.real_estate_list.map((re, idx) => (idx === i ? { ...re, ...patch } : re)) }));
   }, []);
-
   const removeRE = useCallback((i: number) => {
     setForm((f) => ({ ...f, real_estate_list: f.real_estate_list.filter((_, idx) => idx !== i) }));
   }, []);
-
   const addRE = useCallback(() => {
-    setForm((f) => ({
-      ...f,
-      real_estate_list: [
-        ...f.real_estate_list,
-        { label: "", purchase_price: 0, purchase_date: "2020-01-01", current_estimated_value: 0, annual_rental_income: 0, depreciation_taken: 0, mortgage_interest_paid: 0 },
-      ],
-    }));
+    setForm((f) => ({ ...f, real_estate_list: [...f.real_estate_list, { label: "", purchase_price: 0, purchase_date: "2020-01-01", current_estimated_value: 0, annual_rental_income: 0, depreciation_taken: 0, mortgage_interest_paid: 0 }] }));
   }, []);
 
-  const labelStyle: React.CSSProperties = {
-    color: "var(--text-secondary)",
-    fontSize: "10px",
-    fontFamily: "var(--font-body)",
-    textTransform: "uppercase",
-    letterSpacing: "0.06em",
-    fontWeight: 600,
-  };
+  // ── RSU handlers ───────────────────────────────────────────────────────────
+  const updateRSU = useCallback((i: number, patch: Partial<RSUGrantInput>) => {
+    setForm((f) => ({ ...f, rsu_grants: f.rsu_grants.map((g, idx) => (idx === i ? { ...g, ...patch } : g)) }));
+  }, []);
+  const removeRSU = useCallback((i: number) => {
+    setForm((f) => ({ ...f, rsu_grants: f.rsu_grants.filter((_, idx) => idx !== i) }));
+  }, []);
+  const addRSU = useCallback(() => {
+    setForm((f) => ({ ...f, rsu_grants: [...f.rsu_grants, { ticker: "", grant_type: "RSU", shares_vested_ytd: 0, fmv_at_vest: 0, shares_sold_at_vest: 0, current_price: 0, next_vest_shares: 0 }] }));
+  }, []);
 
   return (
     <div className="flex h-[calc(100vh-56px)] gap-5">
@@ -240,6 +243,15 @@ export default function Calculator() {
             <div className="px-3 pb-3 pt-1 space-y-3">
               <Field label="W2 Wages ($)">
                 <NumInput value={form.wages} onChange={(v) => setForm((f) => ({ ...f, wages: v }))} step={1000} />
+              </Field>
+              <Field label="Bonus ($)">
+                <NumInput value={form.bonus} onChange={(v) => setForm((f) => ({ ...f, bonus: v }))} step={1000} />
+              </Field>
+              <Field label="Other Income ($)">
+                <NumInput value={form.other_income} onChange={(v) => setForm((f) => ({ ...f, other_income: v }))} step={500} />
+              </Field>
+              <Field label="Qualified Dividends ($)">
+                <NumInput value={form.qualified_dividends} onChange={(v) => setForm((f) => ({ ...f, qualified_dividends: v }))} step={100} />
               </Field>
               <Field label="Filing Status">
                 <SelectInput
@@ -266,18 +278,106 @@ export default function Calculator() {
                   ]}
                 />
               </Field>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Fed Withheld ($)">
+                  <NumInput value={form.federal_tax_withheld} onChange={(v) => setForm((f) => ({ ...f, federal_tax_withheld: v }))} step={500} />
+                </Field>
+                <Field label="State Withheld ($)">
+                  <NumInput value={form.state_tax_withheld} onChange={(v) => setForm((f) => ({ ...f, state_tax_withheld: v }))} step={500} />
+                </Field>
+              </div>
             </div>
           </details>
 
-          {/* Positions */}
+          {/* Equity Compensation */}
+          <details open className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+            <SectionHeader title="Equity Comp (RSU/ESPP)" />
+            <div className="px-2 pb-3 pt-1">
+              {form.rsu_grants.length > 0 && (
+                <div className="grid gap-1 mb-1 px-1" style={{ gridTemplateColumns: "48px 44px 44px 52px" }}>
+                  {["Ticker", "Vested", "Sold", "FMV@Vest"].map((h) => (
+                    <span key={h} style={labelStyle}>{h}</span>
+                  ))}
+                </div>
+              )}
+              {form.rsu_grants.map((g, i) => (
+                <div
+                  key={i}
+                  className="group relative rounded px-1 py-1.5 mb-1.5 space-y-1.5"
+                  style={{ background: "rgba(245,166,35,0.03)", border: "1px solid rgba(245,166,35,0.1)" }}
+                >
+                  <div className="grid gap-1" style={{ gridTemplateColumns: "48px 44px 44px 52px" }}>
+                    <input
+                      type="text"
+                      value={g.ticker}
+                      onChange={(e) => updateRSU(i, { ticker: e.target.value.toUpperCase() })}
+                      placeholder="TICK"
+                      className="rounded px-1 py-1 outline-none border text-xs font-mono font-bold uppercase"
+                      style={{ background: "rgba(255,255,255,0.04)", borderColor: "rgba(245,166,35,0.2)", color: "#F5A623" }}
+                    />
+                    <MiniNumInput value={g.shares_vested_ytd} onChange={(v) => updateRSU(i, { shares_vested_ytd: v })} step={1} />
+                    <MiniNumInput value={g.shares_sold_at_vest} onChange={(v) => updateRSU(i, { shares_sold_at_vest: v })} step={1} />
+                    <MiniNumInput value={g.fmv_at_vest} onChange={(v) => updateRSU(i, { fmv_at_vest: v })} step={1} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
+                    <Field label="Current Price ($)">
+                      <MiniNumInput value={g.current_price} onChange={(v) => updateRSU(i, { current_price: v })} step={1} />
+                    </Field>
+                    <Field label="Next Vest Shares">
+                      <MiniNumInput value={g.next_vest_shares} onChange={(v) => updateRSU(i, { next_vest_shares: v })} step={1} />
+                    </Field>
+                  </div>
+                  <button
+                    onClick={() => removeRSU(i)}
+                    className="absolute -right-1 -top-1 flex items-center justify-center w-4 h-4 rounded-full text-xs leading-none opacity-0 group-hover:opacity-100 transition-opacity"
+                    style={{ background: "rgba(255,68,85,0.85)", color: "#fff", fontSize: "10px" }}
+                  >×</button>
+                </div>
+              ))}
+              <AddBtn onClick={addRSU} accentColor="rgba(245,166,35,0.4)" label="+ Add Grant" />
+            </div>
+          </details>
+
+          {/* Retirement */}
+          <details open className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+            <SectionHeader title="Retirement" />
+            <div className="px-3 pb-3 pt-1 space-y-3">
+              <Field label="401(k) / 403(b) YTD ($)">
+                <NumInput value={form.k401_contribution} onChange={(v) => setForm((f) => ({ ...f, k401_contribution: v }))} step={500} />
+              </Field>
+              <Field label="HSA Contribution ($)">
+                <NumInput value={form.hsa_contribution} onChange={(v) => setForm((f) => ({ ...f, hsa_contribution: v }))} step={100} />
+              </Field>
+              <Field label="Traditional IRA ($)">
+                <NumInput value={form.ira_contribution} onChange={(v) => setForm((f) => ({ ...f, ira_contribution: v }))} step={500} />
+              </Field>
+            </div>
+          </details>
+
+          {/* Deductions */}
+          <details className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+            <SectionHeader title="Deductions" />
+            <div className="px-3 pb-3 pt-1 space-y-3">
+              <Field label="Charitable Donations ($)">
+                <NumInput value={form.charitable_donations} onChange={(v) => setForm((f) => ({ ...f, charitable_donations: v }))} step={500} />
+              </Field>
+              <Field label="Property Tax Paid ($)">
+                <NumInput value={form.property_tax_paid} onChange={(v) => setForm((f) => ({ ...f, property_tax_paid: v }))} step={500} />
+              </Field>
+              <Field label="Capital Loss Carryforward ($)">
+                <NumInput value={form.capital_loss_carryforward} onChange={(v) => setForm((f) => ({ ...f, capital_loss_carryforward: v }))} step={500} />
+              </Field>
+              <Field label="Prior Year AGI ($)">
+                <NumInput value={form.prior_year_agi} onChange={(v) => setForm((f) => ({ ...f, prior_year_agi: v }))} step={1000} />
+              </Field>
+            </div>
+          </details>
+
+          {/* Open Positions */}
           <details open className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
             <SectionHeader title="Open Positions" />
             <div className="px-2 pb-3 pt-1">
-              {/* Column headers */}
-              <div
-                className="grid gap-1 mb-1 px-1"
-                style={{ gridTemplateColumns: "14px 48px 1fr 52px 58px 58px" }}
-              >
+              <div className="grid gap-1 mb-1 px-1" style={{ gridTemplateColumns: "14px 48px 1fr 52px 58px 58px" }}>
                 {["", "Ticker", "Qty", "Mkt$", "Basis", "Date"].map((h) => (
                   <span key={h} style={labelStyle}>{h}</span>
                 ))}
@@ -291,86 +391,37 @@ export default function Calculator() {
                     className="group grid gap-1 mb-1.5 px-1 py-1.5 rounded relative"
                     style={{ gridTemplateColumns: "14px 48px 1fr 52px 58px 58px", background: "rgba(255,255,255,0.02)" }}
                   >
-                    {/* Asset type dot — click to cycle */}
-                    <button
-                      onClick={() => cycleType(i, pos.asset_type)}
-                      title={`Type: ${pos.asset_type} (click to change)`}
-                      className="flex items-center justify-center self-center"
-                    >
-                      <div className="w-2 h-2 rounded-full transition-all" style={{ background: typeColor }} />
+                    <button onClick={() => cycleType(i, pos.asset_type)} title={`Type: ${pos.asset_type}`} className="flex items-center justify-center self-center">
+                      <div className="w-2 h-2 rounded-full" style={{ background: typeColor }} />
                     </button>
-
-                    {/* Ticker — editable */}
                     <input
                       type="text"
                       value={pos.ticker_or_name}
                       onChange={(e) => updatePos(i, { ticker_or_name: e.target.value.toUpperCase() })}
                       placeholder="TICK"
                       className="w-full rounded px-1 py-1 outline-none border text-xs font-mono font-bold uppercase"
-                      style={{
-                        background: "rgba(255,255,255,0.04)",
-                        borderColor: "rgba(255,255,255,0.08)",
-                        color: typeColor,
-                      }}
+                      style={{ background: "rgba(255,255,255,0.04)", borderColor: "rgba(255,255,255,0.08)", color: typeColor }}
                     />
-
-                    {/* Qty */}
                     <MiniNumInput value={pos.quantity} onChange={(v) => updatePos(i, { quantity: v })} step={1} />
-
-                    {/* Current Market Price (Mkt$) */}
                     <MiniNumInput value={pos.current_price} onChange={(v) => updatePos(i, { current_price: v })} step={1} />
-
-                    {/* Cost Basis (Basis) */}
                     <MiniNumInput value={pos.cost_basis_per_unit} onChange={(v) => updatePos(i, { cost_basis_per_unit: v })} step={1} />
-
-                    {/* Purchase Date */}
                     <input
                       type="date"
                       value={pos.purchase_date}
                       onChange={(e) => updatePos(i, { purchase_date: e.target.value })}
                       className="w-full text-xs font-mono rounded px-1 py-1 outline-none border"
-                      style={{
-                        background: "rgba(255,255,255,0.04)",
-                        borderColor: "rgba(255,255,255,0.08)",
-                        color: "var(--text-secondary)",
-                        fontSize: "10px",
-                      }}
+                      style={{ background: "rgba(255,255,255,0.04)", borderColor: "rgba(255,255,255,0.08)", color: "var(--text-secondary)", fontSize: "10px" }}
                     />
-
-                    {/* Delete button — hover overlay */}
                     <button
                       onClick={() => removePos(i)}
                       className="absolute -right-1 -top-1 flex items-center justify-center w-4 h-4 rounded-full text-xs leading-none opacity-0 group-hover:opacity-100 transition-opacity"
                       style={{ background: "rgba(255,68,85,0.85)", color: "#fff", fontSize: "10px" }}
-                      title="Remove position"
-                    >
-                      ×
-                    </button>
+                    >×</button>
                   </div>
                 );
               })}
 
-              {/* Add Position button */}
-              <button
-                onClick={addPos}
-                className="mt-2 w-full rounded-lg py-1.5 text-xs font-semibold font-display uppercase tracking-wider transition-colors duration-150 flex items-center justify-center gap-1"
-                style={{
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px dashed rgba(255,255,255,0.15)",
-                  color: "var(--text-muted)",
-                }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(245,166,35,0.4)";
-                  (e.currentTarget as HTMLButtonElement).style.color = "var(--accent)";
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,255,255,0.15)";
-                  (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)";
-                }}
-              >
-                + Add Position
-              </button>
-
+              <AddBtn onClick={addPos} label="+ Add Position" />
               <p className="mt-2 px-1 text-xs" style={{ color: "var(--text-muted)" }}>
                 Click the color dot to cycle type (stock/crypto/option).
               </p>
@@ -384,27 +435,20 @@ export default function Calculator() {
               {form.real_estate_list.length === 0 && (
                 <p className="px-1 text-xs" style={{ color: "var(--text-muted)" }}>No properties added.</p>
               )}
-
               {form.real_estate_list.map((re, i) => (
                 <div
                   key={i}
                   className="group relative rounded-lg px-3 py-2.5 space-y-2"
                   style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}
                 >
-                  {/* Label */}
                   <input
                     type="text"
                     value={re.label}
                     onChange={(e) => updateRE(i, { label: e.target.value })}
                     placeholder="Property label"
                     className="w-full text-xs font-mono rounded px-2 py-1 outline-none border"
-                    style={{
-                      background: "rgba(255,255,255,0.04)",
-                      borderColor: "rgba(255,255,255,0.08)",
-                      color: "var(--text-primary)",
-                    }}
+                    style={{ background: "rgba(255,255,255,0.04)", borderColor: "rgba(255,255,255,0.08)", color: "var(--text-primary)" }}
                   />
-
                   <div className="grid grid-cols-2 gap-2">
                     <Field label="Purchase ($)">
                       <MiniNumInput value={re.purchase_price} onChange={(v) => updateRE(i, { purchase_price: v })} step={5000} />
@@ -413,42 +457,22 @@ export default function Calculator() {
                       <MiniNumInput value={re.current_estimated_value} onChange={(v) => updateRE(i, { current_estimated_value: v })} step={5000} />
                     </Field>
                   </div>
-
-                  <Field label="Annual Rental ($)">
-                    <MiniNumInput value={re.annual_rental_income} onChange={(v) => updateRE(i, { annual_rental_income: v })} step={500} />
-                  </Field>
-
-                  {/* Delete — hover overlay */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Annual Rental ($)">
+                      <MiniNumInput value={re.annual_rental_income} onChange={(v) => updateRE(i, { annual_rental_income: v })} step={500} />
+                    </Field>
+                    <Field label="Mortgage Int. ($)">
+                      <MiniNumInput value={re.mortgage_interest_paid} onChange={(v) => updateRE(i, { mortgage_interest_paid: v })} step={500} />
+                    </Field>
+                  </div>
                   <button
                     onClick={() => removeRE(i)}
                     className="absolute -right-1 -top-1 flex items-center justify-center w-4 h-4 rounded-full text-xs leading-none opacity-0 group-hover:opacity-100 transition-opacity"
                     style={{ background: "rgba(255,68,85,0.85)", color: "#fff", fontSize: "10px" }}
-                    title="Remove property"
-                  >
-                    ×
-                  </button>
+                  >×</button>
                 </div>
               ))}
-
-              <button
-                onClick={addRE}
-                className="w-full rounded-lg py-1.5 text-xs font-semibold font-display uppercase tracking-wider transition-colors duration-150 flex items-center justify-center gap-1"
-                style={{
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px dashed rgba(255,255,255,0.15)",
-                  color: "var(--text-muted)",
-                }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(0,200,124,0.4)";
-                  (e.currentTarget as HTMLButtonElement).style.color = "#00C87C";
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,255,255,0.15)";
-                  (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)";
-                }}
-              >
-                + Add Property
-              </button>
+              <AddBtn onClick={addRE} accentColor="rgba(0,200,124,0.4)" accentText="#00C87C" label="+ Add Property" />
             </div>
           </details>
 
@@ -469,24 +493,13 @@ export default function Calculator() {
 
       {/* ── Right panel ── */}
       <main className="flex-1 min-w-0 overflow-y-auto py-4 pr-1 relative">
-        {/* Loading overlay */}
         {loading && (
-          <div
-            className="absolute inset-0 z-10 flex items-start justify-end p-3 pointer-events-none"
-          >
+          <div className="absolute inset-0 z-10 flex items-start justify-end p-3 pointer-events-none">
             <div
               className="flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-body"
-              style={{
-                background: "rgba(7,11,18,0.85)",
-                border: "1px solid rgba(245,166,35,0.2)",
-                color: "var(--accent)",
-                backdropFilter: "blur(8px)",
-              }}
+              style={{ background: "rgba(7,11,18,0.85)", border: "1px solid rgba(245,166,35,0.2)", color: "var(--accent)", backdropFilter: "blur(8px)" }}
             >
-              <div
-                className="spinner h-3.5 w-3.5 rounded-full border-2"
-                style={{ borderColor: "rgba(245,166,35,0.3)", borderTopColor: "var(--accent)" }}
-              />
+              <div className="spinner h-3.5 w-3.5 rounded-full border-2" style={{ borderColor: "rgba(245,166,35,0.3)", borderTopColor: "var(--accent)" }} />
               Recalculating…
             </div>
           </div>
@@ -495,11 +508,7 @@ export default function Calculator() {
         {error && (
           <div
             className="mb-4 rounded-lg px-4 py-3 text-sm font-body"
-            style={{
-              background: "rgba(255,68,85,0.08)",
-              border: "1px solid rgba(255,68,85,0.2)",
-              color: "var(--negative)",
-            }}
+            style={{ background: "rgba(255,68,85,0.08)", border: "1px solid rgba(255,68,85,0.2)", color: "var(--negative)" }}
           >
             {error} — make sure the backend is running on :8000
           </div>
@@ -512,10 +521,7 @@ export default function Calculator() {
           </div>
         ) : !error ? (
           <div className="flex h-40 items-center justify-center">
-            <div
-              className="spinner h-6 w-6 rounded-full border-2"
-              style={{ borderColor: "rgba(255,255,255,0.1)", borderTopColor: "var(--accent)" }}
-            />
+            <div className="spinner h-6 w-6 rounded-full border-2" style={{ borderColor: "rgba(255,255,255,0.1)", borderTopColor: "var(--accent)" }} />
           </div>
         ) : null}
       </main>
@@ -523,19 +529,32 @@ export default function Calculator() {
   );
 }
 
-function ActionBtn({
-  onClick,
-  variant,
-  children,
-}: {
-  onClick: () => void;
-  variant: "accent" | "danger";
-  children: React.ReactNode;
+function AddBtn({ onClick, label, accentColor = "rgba(255,255,255,0.15)", accentText = "var(--text-muted)" }: {
+  onClick: () => void; label: string; accentColor?: string; accentText?: string;
 }) {
+  return (
+    <button
+      onClick={onClick}
+      className="mt-2 w-full rounded-lg py-1.5 text-xs font-semibold font-display uppercase tracking-wider transition-colors duration-150 flex items-center justify-center gap-1"
+      style={{ background: "rgba(255,255,255,0.03)", border: "1px dashed rgba(255,255,255,0.15)", color: "var(--text-muted)" }}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.borderColor = accentColor;
+        (e.currentTarget as HTMLButtonElement).style.color = accentText;
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,255,255,0.15)";
+        (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)";
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function ActionBtn({ onClick, variant, children }: { onClick: () => void; variant: "accent" | "danger"; children: React.ReactNode }) {
   const base = variant === "accent"
     ? { bg: "rgba(245,166,35,0.07)", border: "1px solid rgba(245,166,35,0.2)", color: "var(--accent)", hoverBg: "rgba(245,166,35,0.14)" }
     : { bg: "rgba(255,68,85,0.06)", border: "1px solid rgba(255,68,85,0.2)", color: "var(--negative)", hoverBg: "rgba(255,68,85,0.12)" };
-
   return (
     <button
       onClick={onClick}
@@ -549,15 +568,7 @@ function ActionBtn({
   );
 }
 
-function MiniNumInput({
-  value,
-  onChange,
-  step = 1,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-  step?: number;
-}) {
+function MiniNumInput({ value, onChange, step = 1 }: { value: number; onChange: (v: number) => void; step?: number }) {
   const [focused, setFocused] = useState(false);
   return (
     <input
@@ -568,18 +579,9 @@ function MiniNumInput({
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
       className="w-full rounded px-1 py-1 outline-none border text-xs font-mono"
-      style={
-        focused
-          ? {
-              background: "rgba(245,166,35,0.06)",
-              borderColor: "rgba(245,166,35,0.4)",
-              color: "var(--text-primary)",
-            }
-          : {
-              background: "rgba(255,255,255,0.04)",
-              borderColor: "rgba(255,255,255,0.08)",
-              color: "var(--text-secondary)",
-            }
+      style={focused
+        ? { background: "rgba(245,166,35,0.06)", borderColor: "rgba(245,166,35,0.4)", color: "var(--text-primary)" }
+        : { background: "rgba(255,255,255,0.04)", borderColor: "rgba(255,255,255,0.08)", color: "var(--text-secondary)" }
       }
     />
   );
