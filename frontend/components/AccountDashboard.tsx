@@ -2,95 +2,167 @@
 
 import { useEffect, useState } from "react";
 import type {
-  AccountPosition, AccountRSUGrant, AccountRealEstate, AuthUser, RetirementData, TaxData,
+  AccountPosition, AccountRSUGrant, AccountRealEstate, AccountTransaction,
+  AuthUser, InsightsResponse, RetirementData, SimulateRequest, TaxData,
 } from "@/lib/api";
 import {
   getPositions, getRSUGrants, getRealEstate, getRetirementData, getTaxData,
+  getTransactions, simulateInsights,
 } from "@/lib/api";
+import DashboardCards from "@/components/DashboardCards";
+import AskClaude from "@/components/AskClaude";
 
-const fmt = (n: number) => {
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const fmtShort = (n: number) => {
   const abs = Math.abs(n);
-  const s = n < 0 ? "-" : "";
-  if (abs >= 1_000_000) return `${s}$${(abs / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${s}$${(abs / 1_000).toFixed(0)}k`;
-  return `${s}$${abs.toLocaleString()}`;
+  const sign = n < 0 ? "-" : "";
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`;
+  if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(0)}k`;
+  return `${sign}$${abs}`;
 };
 
-function Card({ children, onEdit, title, icon }: {
-  children: React.ReactNode;
-  onEdit?: () => void;
-  title: string;
-  icon: string;
-}) {
+// ─── Summary strip (mirrors Demo tab) ────────────────────────────────────────
+
+function SummaryStrip({ data }: { data: InsightsResponse }) {
+  const balance = data.tax_balance?.balance;
+  const isRefund = balance !== undefined && balance >= 0;
+  const topRate = data.marginal_rate_stack?.total_ordinary_pct;
+  const byType = data.asset_breakdown?.by_type;
+  const unrealized = byType
+    ? Object.values(byType).reduce((s, t) => s + (t?.unrealized_gain_loss ?? 0), 0)
+    : null;
+
+  const stats: { label: string; value: string; color?: string; sub?: string }[] = [
+    { label: "Net Worth", value: fmtShort(data.net_worth.total), color: "var(--text-primary)" },
+    ...(balance !== undefined ? [{
+      label: isRefund ? "Est. Refund" : "Est. Owed",
+      value: fmtShort(Math.abs(balance)),
+      color: isRefund ? "var(--positive)" : "var(--negative)",
+    }] : []),
+    ...(topRate !== undefined ? [{
+      label: "Top Marginal Rate",
+      value: `${topRate}%`,
+      color: "var(--text-primary)",
+      sub: "ordinary income",
+    }] : []),
+    ...(unrealized !== null ? [{
+      label: "Unrealized P&L",
+      value: fmtShort(unrealized),
+      color: unrealized >= 0 ? "var(--positive)" : "var(--negative)",
+    }] : []),
+  ];
+
   return (
     <div
-      className="rounded-xl p-5 flex flex-col gap-3"
+      className="rounded-xl border mb-6 grid"
       style={{
         background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(255,255,255,0.07)",
-        backdropFilter: "blur(12px)",
+        borderColor: "rgba(255,255,255,0.07)",
+        gridTemplateColumns: `repeat(${stats.length}, 1fr)`,
       }}
     >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span style={{ fontSize: 16 }}>{icon}</span>
-          <span className="text-xs font-semibold uppercase tracking-widest font-display" style={{ color: "var(--accent)" }}>
-            {title}
-          </span>
-        </div>
-        {onEdit && (
-          <button
-            onClick={onEdit}
-            className="rounded-lg px-3 py-1 text-xs font-semibold font-display uppercase tracking-wider transition-colors duration-150"
-            style={{
-              background: "rgba(245,166,35,0.06)",
-              border: "1px solid rgba(245,166,35,0.2)",
-              color: "var(--accent)",
-            }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "rgba(245,166,35,0.12)")}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "rgba(245,166,35,0.06)")}
+      {stats.map((s, i) => (
+        <div
+          key={i}
+          className="px-5 py-3.5"
+          style={{ borderLeft: i > 0 ? "1px solid rgba(255,255,255,0.07)" : undefined }}
+        >
+          <p
+            className="font-display uppercase mb-1"
+            style={{ fontSize: "9px", letterSpacing: "0.14em", color: "rgba(255,255,255,0.28)", fontWeight: 600 }}
           >
-            Edit
-          </button>
-        )}
-      </div>
-      {children}
+            {s.label}
+          </p>
+          <p className="text-xl font-bold font-mono leading-none" style={{ color: s.color ?? "var(--text-primary)" }}>
+            {s.value}
+          </p>
+          {s.sub && (
+            <p className="mt-0.5 font-body" style={{ fontSize: "10px", color: "rgba(255,255,255,0.22)" }}>{s.sub}</p>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
 
-function Row({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-xs font-body" style={{ color: "var(--text-muted)" }}>{label}</span>
-      <span className="text-sm font-mono font-semibold" style={{ color: muted ? "var(--text-muted)" : "var(--text-primary)" }}>
-        {value}
-      </span>
-    </div>
-  );
+// ─── Build SimulateRequest from account data ──────────────────────────────────
+
+function buildRequest(
+  tax: TaxData,
+  retirement: RetirementData | null,
+  positions: AccountPosition[],
+  transactions: AccountTransaction[],
+  rsuGrants: AccountRSUGrant[],
+  realEstate: AccountRealEstate[],
+): SimulateRequest {
+  return {
+    filing_status: tax.filing_status,
+    state: tax.state,
+    wages: tax.wages,
+    federal_tax_withheld: tax.federal_tax_withheld,
+    state_tax_withheld: tax.state_tax_withheld,
+    bonus: tax.bonus,
+    other_income: tax.other_income,
+    qualified_dividends: tax.qualified_dividends,
+    k401_contribution: retirement?.k401_contribution ?? 0,
+    hsa_contribution: retirement?.hsa_contribution ?? 0,
+    ira_contribution: retirement?.ira_contribution ?? 0,
+    capital_loss_carryforward: retirement?.capital_loss_carryforward ?? 0,
+    charitable_donations: retirement?.charitable_donations ?? 0,
+    property_tax_paid: retirement?.property_tax_paid ?? 0,
+    prior_year_agi: retirement?.prior_year_agi ?? 0,
+    rsu_grants: rsuGrants.map((g) => ({
+      ticker: g.ticker,
+      grant_type: g.grant_type,
+      shares_vested_ytd: g.shares_vested_ytd,
+      fmv_at_vest: g.fmv_at_vest,
+      shares_sold_at_vest: g.shares_sold_at_vest,
+      current_price: g.current_price,
+      next_vest_date: g.next_vest_date,
+      next_vest_shares: g.next_vest_shares,
+    })),
+    positions: positions.map((p) => ({
+      asset_type: p.asset_type,
+      ticker_or_name: p.ticker_or_name,
+      quantity: p.quantity,
+      cost_basis_per_unit: p.cost_basis_per_unit,
+      current_price: p.current_price,
+      purchase_date: p.purchase_date,
+    })),
+    transactions: transactions.map((t) => ({
+      asset_type: t.asset_type,
+      ticker_or_name: t.ticker_or_name,
+      action: t.action,
+      quantity: t.quantity,
+      price_per_unit: t.price_per_unit,
+      total_proceeds: t.total_proceeds,
+      total_cost_basis: t.total_cost_basis,
+      transaction_date: t.transaction_date,
+    })),
+    real_estate_list: realEstate.map((re) => ({
+      label: re.label,
+      purchase_price: re.purchase_price,
+      purchase_date: re.purchase_date,
+      current_estimated_value: re.current_estimated_value,
+      annual_rental_income: re.annual_rental_income,
+      depreciation_taken: re.depreciation_taken,
+      mortgage_interest_paid: re.mortgage_interest_paid,
+    })),
+  };
 }
 
-function Chip({ label, color = "rgba(255,255,255,0.12)" }: { label: string; color?: string }) {
-  return (
-    <span
-      className="inline-block rounded-full px-2 py-0.5 text-xs font-body"
-      style={{ background: color, color: "var(--text-secondary)", border: "1px solid rgba(255,255,255,0.08)" }}
-    >
-      {label}
-    </span>
-  );
-}
+// ─── Edit section labels ──────────────────────────────────────────────────────
 
-function Badge({ label, color }: { label: string; color: string }) {
-  return (
-    <span
-      className="inline-block rounded px-2 py-0.5 text-xs font-semibold uppercase tracking-wider font-display"
-      style={{ background: `${color}18`, border: `1px solid ${color}44`, color }}
-    >
-      {label}
-    </span>
-  );
-}
+const EDIT_LABELS: Record<string, string> = {
+  tax: "Tax & Income",
+  retirement: "Retirement",
+  brokerage: "Brokerage",
+  equity: "Equity",
+  real_estate: "Real Estate",
+};
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 interface Props {
   user: AuthUser | null;
@@ -99,58 +171,23 @@ interface Props {
 }
 
 export default function AccountDashboard({ user, onEdit, onSignOut }: Props) {
-  const [tax, setTax] = useState<TaxData | null>(null);
-  const [retirement, setRetirement] = useState<RetirementData | null>(null);
-  const [positions, setPositions] = useState<AccountPosition[]>([]);
-  const [rsu, setRsu] = useState<AccountRSUGrant[]>([]);
-  const [realEstate, setRealEstate] = useState<AccountRealEstate[]>([]);
   const [loading, setLoading] = useState(true);
+  const [insights, setInsights] = useState<InsightsResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([getTaxData(), getRetirementData(), getPositions(), getRSUGrants(), getRealEstate()])
-      .then(([t, r, p, g, re]) => {
-        setTax(t);
-        setRetirement(r);
-        setPositions(p);
-        setRsu(g);
-        setRealEstate(re);
+    Promise.all([
+      getTaxData(), getRetirementData(), getPositions(),
+      getTransactions(), getRSUGrants(), getRealEstate(),
+    ])
+      .then(([tax, retirement, positions, transactions, rsuGrants, realEstate]) => {
+        if (!tax) return null;
+        return simulateInsights(buildRequest(tax, retirement, positions, transactions, rsuGrants, realEstate));
       })
+      .then((ins) => { if (ins) setInsights(ins); })
+      .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
-
-  const filingLabel: Record<string, string> = {
-    single: "Single",
-    married_filing_jointly: "Married (Joint)",
-    married_filing_separately: "Married (Sep.)",
-    head_of_household: "Head of Household",
-  };
-
-  if (loading) {
-    return (
-      <div className="flex min-h-[calc(100vh-56px)] items-center justify-center">
-        <div className="flex items-center gap-3" style={{ color: "var(--text-muted)" }}>
-          <div className="spinner h-5 w-5 rounded-full border-2" style={{ borderColor: "rgba(255,255,255,0.1)", borderTopColor: "var(--accent)" }} />
-          <span className="text-sm font-body">Loading your data…</span>
-        </div>
-      </div>
-    );
-  }
-
-  // Derive position type counts
-  const typeCounts = positions.reduce<Record<string, number>>((acc, p) => {
-    acc[p.asset_type] = (acc[p.asset_type] ?? 0) + 1;
-    return acc;
-  }, {});
-
-  const typeColor: Record<string, string> = {
-    stock: "#F5A623",
-    crypto: "#FF4455",
-    option: "#00C87C",
-  };
-
-  const totalRetirement = (retirement?.k401_contribution ?? 0) + (retirement?.hsa_contribution ?? 0) + (retirement?.ira_contribution ?? 0);
-  const totalDeductions = (retirement?.charitable_donations ?? 0) + (retirement?.property_tax_paid ?? 0);
-  const totalRental = realEstate.reduce((s, r) => s + r.annual_rental_income, 0);
 
   const initials = user
     ? user.display_name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase()
@@ -159,16 +196,27 @@ export default function AccountDashboard({ user, onEdit, onSignOut }: Props) {
     ? new Date(user.created_at).toLocaleDateString("en-US", { month: "long", year: "numeric" })
     : "";
 
+  if (loading) {
+    return (
+      <div className="flex min-h-[calc(100vh-56px)] items-center justify-center">
+        <div className="flex items-center gap-3" style={{ color: "var(--text-muted)" }}>
+          <div className="spinner h-5 w-5 rounded-full border-2" style={{ borderColor: "rgba(255,255,255,0.1)", borderTopColor: "var(--accent)" }} />
+          <span className="text-sm font-body">Computing your insights…</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="mx-auto max-w-screen-lg px-8 py-10">
-      {/* Avatar row */}
+    <div className="mx-auto max-w-screen-xl px-8 py-8">
+      {/* User header */}
       <div
-        className="mb-8 flex items-center justify-between rounded-xl px-6 py-4"
+        className="mb-6 flex items-center justify-between rounded-xl px-6 py-4"
         style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)" }}
       >
         <div className="flex items-center gap-4">
           <div
-            className="flex h-12 w-12 items-center justify-center rounded-full text-lg font-bold font-display"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold font-display"
             style={{ background: "linear-gradient(135deg, #F5A623 0%, #E8890A 100%)", color: "#070B12" }}
           >
             {initials}
@@ -182,110 +230,71 @@ export default function AccountDashboard({ user, onEdit, onSignOut }: Props) {
             </p>
           </div>
         </div>
-        <button
-          onClick={onSignOut}
-          className="rounded-lg px-4 py-2 text-xs font-semibold font-display uppercase tracking-wider transition-colors duration-150"
-          style={{ background: "rgba(255,68,85,0.06)", border: "1px solid rgba(255,68,85,0.2)", color: "var(--negative)" }}
-          onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "rgba(255,68,85,0.12)")}
-          onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "rgba(255,68,85,0.06)")}
+
+        <div className="flex items-center gap-2">
+          {(Object.keys(EDIT_LABELS) as Array<"tax" | "retirement" | "brokerage" | "equity" | "real_estate">).map((s) => (
+            <button
+              key={s}
+              onClick={() => onEdit(s)}
+              className="rounded-lg px-3 py-1.5 text-xs font-semibold font-display uppercase tracking-wider transition-colors duration-150"
+              style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "var(--text-muted)" }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.color = "var(--accent)";
+                (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(245,166,35,0.3)";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)";
+                (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,255,255,0.08)";
+              }}
+            >
+              {EDIT_LABELS[s]}
+            </button>
+          ))}
+          <button
+            onClick={onSignOut}
+            className="ml-2 rounded-lg px-4 py-2 text-xs font-semibold font-display uppercase tracking-wider transition-colors duration-150"
+            style={{ background: "rgba(255,68,85,0.06)", border: "1px solid rgba(255,68,85,0.2)", color: "var(--negative)" }}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "rgba(255,68,85,0.12)")}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "rgba(255,68,85,0.06)")}
+          >
+            Sign Out
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="mb-6 rounded-xl px-4 py-3 text-sm font-body" style={{ background: "rgba(255,68,85,0.08)", border: "1px solid rgba(255,68,85,0.2)", color: "var(--negative)" }}>
+          Failed to compute insights: {error}
+        </div>
+      )}
+
+      {insights ? (
+        <>
+          <div className="mb-5">
+            <h1 className="text-2xl font-bold font-display" style={{ color: "var(--text-primary)" }}>
+              Your AI Insights Dashboard
+            </h1>
+            <p className="mt-1 text-sm font-body" style={{ color: "var(--text-muted)" }}>
+              2024 tax year · {user?.display_name} · Personalized
+            </p>
+          </div>
+          <SummaryStrip data={insights} />
+          <DashboardCards data={insights} />
+          <AskClaude snapshot={insights} />
+        </>
+      ) : (
+        <div
+          className="rounded-xl px-8 py-12 text-center"
+          style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)" }}
         >
-          Sign Out
-        </button>
-      </div>
-
-      <h2 className="mb-5 text-xl font-bold font-display" style={{ color: "var(--text-primary)" }}>
-        Your Financial Profile
-      </h2>
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {/* Tax & Income */}
-        <Card title="Tax & Income" icon="📋" onEdit={() => onEdit("tax")}>
-          {tax ? (
-            <div className="space-y-2">
-              <div className="flex flex-wrap gap-1.5 mb-1">
-                <Badge label={filingLabel[tax.filing_status] ?? tax.filing_status} color="#F5A623" />
-                <Badge label={tax.state} color="#00C87C" />
-              </div>
-              <Row label="W2 Wages" value={fmt(tax.wages)} />
-              {tax.bonus > 0 && <Row label="Bonus" value={fmt(tax.bonus)} />}
-              <Row label="Fed Withheld" value={fmt(tax.federal_tax_withheld)} />
-              <Row label="State Withheld" value={fmt(tax.state_tax_withheld)} />
-            </div>
-          ) : (
-            <p className="text-xs font-body" style={{ color: "var(--text-muted)" }}>No tax data added yet.</p>
-          )}
-        </Card>
-
-        {/* Retirement & Deductions */}
-        <Card title="Retirement & Deductions" icon="🏦" onEdit={() => onEdit("retirement")}>
-          {retirement ? (
-            <div className="space-y-2">
-              <Row label="401k / 403b" value={fmt(retirement.k401_contribution)} />
-              <Row label="HSA" value={fmt(retirement.hsa_contribution)} />
-              <Row label="IRA" value={fmt(retirement.ira_contribution)} />
-              {totalRetirement > 0 && (
-                <Row label="Total Pre-Tax" value={fmt(totalRetirement)} />
-              )}
-              {totalDeductions > 0 && (
-                <Row label="Itemized Deductions" value={fmt(totalDeductions)} />
-              )}
-            </div>
-          ) : (
-            <p className="text-xs font-body" style={{ color: "var(--text-muted)" }}>No retirement data added yet.</p>
-          )}
-        </Card>
-
-        {/* Brokerage */}
-        <Card title="Brokerage" icon="📈" onEdit={() => onEdit("brokerage")}>
-          {positions.length > 0 ? (
-            <div className="space-y-2">
-              <Row label="Open Positions" value={String(positions.length)} />
-              <div className="flex flex-wrap gap-1">
-                {Object.entries(typeCounts).map(([type, count]) => (
-                  <Chip key={type} label={`${count} ${type}`} color={`${typeColor[type] ?? "#fff"}18`} />
-                ))}
-              </div>
-            </div>
-          ) : (
-            <p className="text-xs font-body" style={{ color: "var(--text-muted)" }}>No positions added yet.</p>
-          )}
-        </Card>
-
-        {/* Equity Comp */}
-        <Card title="Equity Comp" icon="💼" onEdit={() => onEdit("equity")}>
-          {rsu.length > 0 ? (
-            <div className="space-y-2">
-              <Row label="RSU Grants" value={String(rsu.length)} />
-              <div className="flex flex-wrap gap-1">
-                {rsu.slice(0, 4).map((g) => (
-                  <Chip key={g.ticker} label={g.ticker} color="rgba(245,166,35,0.12)" />
-                ))}
-                {rsu.length > 4 && <Chip label={`+${rsu.length - 4} more`} />}
-              </div>
-            </div>
-          ) : (
-            <p className="text-xs font-body" style={{ color: "var(--text-muted)" }}>No RSU grants added yet.</p>
-          )}
-        </Card>
-
-        {/* Real Estate */}
-        <Card title="Real Estate" icon="🏠" onEdit={() => onEdit("real_estate")}>
-          {realEstate.length > 0 ? (
-            <div className="space-y-2">
-              <Row label="Properties" value={String(realEstate.length)} />
-              {totalRental > 0 && <Row label="Annual Rental Income" value={fmt(totalRental)} />}
-              <div className="flex flex-wrap gap-1">
-                {realEstate.slice(0, 2).map((re) => (
-                  <Chip key={re.label} label={re.label || "Unnamed"} />
-                ))}
-                {realEstate.length > 2 && <Chip label={`+${realEstate.length - 2} more`} />}
-              </div>
-            </div>
-          ) : (
-            <p className="text-xs font-body" style={{ color: "var(--text-muted)" }}>No properties added yet.</p>
-          )}
-        </Card>
-      </div>
+          <p className="text-lg font-semibold font-display mb-2" style={{ color: "var(--text-secondary)" }}>
+            No financial data found
+          </p>
+          <p className="text-sm font-body" style={{ color: "var(--text-muted)" }}>
+            Complete the onboarding wizard to see your personalized insights.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
