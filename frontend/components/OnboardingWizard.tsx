@@ -731,6 +731,10 @@ export function RealEstateTable({
               <input type="number" value={re.purchase_price} onChange={(e) => update(i, { purchase_price: parseInt(e.target.value) || 0 })} className={miniCls} style={inputBase} />
             </div>
             <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold uppercase tracking-wider font-display" style={{ color: "var(--text-muted)", fontSize: "9px" }}>Purchase Date</label>
+              <input type="date" value={re.purchase_date} onChange={(e) => update(i, { purchase_date: e.target.value })} className={miniCls} style={{ ...inputBase, fontSize: "10px" }} />
+            </div>
+            <div className="flex flex-col gap-1">
               <label className="text-xs font-semibold uppercase tracking-wider font-display" style={{ color: "var(--text-muted)", fontSize: "9px" }}>Current Value ($)</label>
               <input type="number" value={re.current_estimated_value} onChange={(e) => update(i, { current_estimated_value: parseInt(e.target.value) || 0 })} className={miniCls} style={inputBase} />
             </div>
@@ -741,6 +745,10 @@ export function RealEstateTable({
             <div className="flex flex-col gap-1">
               <label className="text-xs font-semibold uppercase tracking-wider font-display" style={{ color: "var(--text-muted)", fontSize: "9px" }}>Mortgage Interest ($)</label>
               <input type="number" value={re.mortgage_interest_paid} onChange={(e) => update(i, { mortgage_interest_paid: parseInt(e.target.value) || 0 })} className={miniCls} style={inputBase} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold uppercase tracking-wider font-display" style={{ color: "var(--text-muted)", fontSize: "9px" }}>Depreciation Taken ($)</label>
+              <input type="number" value={re.depreciation_taken} onChange={(e) => update(i, { depreciation_taken: parseInt(e.target.value) || 0 })} className={miniCls} style={inputBase} />
             </div>
           </div>
           <button onClick={() => remove(i)}
@@ -1060,15 +1068,15 @@ export default function OnboardingWizard({ user, onComplete }: Props) {
             {step === 6 && "Confirm cost basis for all imported positions. Rows with missing basis are flagged."}
           </p>
 
-          {/* Method cards — not shown on step 6 (verification only) */}
-          {step < 6 && (
+          {/* Method cards — steps 1–3 only; step 4 is manual-only, step 5 has no PDF parser, step 6 is verification */}
+          {step <= 3 && (
             <MethodCards
               selected={method}
               onSelect={setMethod}
               pdfDesc={
                 step === 1 ? "Prior year W-2 or 1040" :
                 step === 2 ? "Current W-2 or latest paystub" :
-                "W-2, 1040, or brokerage statement"
+                "Brokerage statement (positions & transactions)"
               }
             />
           )}
@@ -1149,19 +1157,9 @@ export default function OnboardingWizard({ user, onComplete }: Props) {
               </>
             )}
 
-            {/* Step 4: Equity Comp */}
-            {step === 4 && (method === "pdf" || method === "manual") && (
-              <>
-                {method === "pdf" && (
-                  <div className="mb-4">
-                    <PdfDropZone onFile={handleBrokeragePdf} loading={pdfLoading} />
-                    <p className="mt-2 text-xs font-body" style={{ color: "var(--text-muted)" }}>
-                      Most brokerages include RSU activity in their annual statement.
-                    </p>
-                  </div>
-                )}
-                <RSUTable grants={rsuGrants} setGrants={setRsuGrants} />
-              </>
+            {/* Step 4: Equity Comp — manual entry only; no parser exists for RSU grant PDFs */}
+            {step === 4 && (
+              <RSUTable grants={rsuGrants} setGrants={setRsuGrants} />
             )}
 
             {/* Step 5: Real Estate */}
@@ -1218,14 +1216,14 @@ export default function OnboardingWizard({ user, onComplete }: Props) {
 
           {error && <ErrorBanner msg={error} />}
 
-          {/* Footer — show when method chosen (or step 6) */}
-          {(method !== null || step === 6) && (
+          {/* Footer — always on steps 4–6; steps 1–3 require a method choice first */}
+          {(method !== null || step >= 4) && (
             <StepFooter
               onSave={handleSave}
               onSkip={handleSkip}
               saving={saving}
               isLast={step === 6}
-              disabled={step < 6 && method === null}
+              disabled={step <= 3 && method === null}
             />
           )}
         </div>

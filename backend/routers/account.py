@@ -662,7 +662,7 @@ async def parse_brokerage_pdf(
         for p in parsed.positions:
             positions.append({
                 "asset_type": p.asset_type,
-                "ticker_or_name": p.ticker_or_name,
+                "ticker_or_name": p.ticker,
                 "quantity": float(p.quantity),
                 "cost_basis_per_unit": float(p.cost_basis_per_unit),
                 "current_price": float(p.current_price),

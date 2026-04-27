@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { AuthUser } from "@/lib/api";
-import { authLogin, authMe, authRegister, getToken, removeToken, setToken } from "@/lib/api";
+import { authLogin, authRegister, setToken } from "@/lib/api";
 
-type View = "checking" | "login" | "register" | "profile";
+type View = "login" | "register";
 
 // ─── Shared input styles (mirror Calculator) ──────────────────────────────────
 const baseInput: React.CSSProperties = {
@@ -155,54 +155,6 @@ function PrimaryBtn({ onClick, loading, children }: { onClick?: () => void; load
       )}
       {children}
     </button>
-  );
-}
-
-// ─── Avatar ───────────────────────────────────────────────────────────────────
-function Avatar({ name }: { name: string }) {
-  const initials = name
-    .split(" ")
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
-  return (
-    <div
-      className="flex items-center justify-center rounded-full text-xl font-bold font-display select-none"
-      style={{
-        width: 72, height: 72,
-        background: "linear-gradient(135deg, rgba(245,166,35,0.3) 0%, rgba(245,166,35,0.12) 100%)",
-        border: "2px solid rgba(245,166,35,0.4)",
-        color: "var(--accent)",
-        boxShadow: "0 0 24px rgba(245,166,35,0.18)",
-      }}
-    >
-      {initials || "?"}
-    </div>
-  );
-}
-
-// ─── Feature lock card ────────────────────────────────────────────────────────
-function LockedFeature({ label, description }: { label: string; description: string }) {
-  return (
-    <div
-      className="flex items-center gap-3 rounded-xl px-4 py-3"
-      style={{ background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.07)" }}
-    >
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
-        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-      </svg>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold font-display" style={{ color: "var(--text-secondary)" }}>{label}</p>
-        <p className="text-xs font-body mt-0.5" style={{ color: "var(--text-muted)" }}>{description}</p>
-      </div>
-      <span
-        className="flex-shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold font-display uppercase tracking-wider"
-        style={{ background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.2)", color: "rgba(245,166,35,0.6)" }}
-      >
-        Soon
-      </span>
-    </div>
   );
 }
 
@@ -400,102 +352,18 @@ function RegisterView({
   );
 }
 
-// ─── Profile view ─────────────────────────────────────────────────────────────
-function ProfileView({ user, onSignOut }: { user: AuthUser; onSignOut: () => void }) {
-  const memberSince = (() => {
-    try {
-      return new Date(user.created_at).toLocaleDateString("en-US", { month: "long", year: "numeric" });
-    } catch {
-      return "—";
-    }
-  })();
-
-  return (
-    <Card>
-      <div className="flex flex-col items-center text-center pb-6" style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
-        <Avatar name={user.display_name} />
-        <h2 className="mt-4 text-2xl font-bold font-display" style={{ color: "var(--text-primary)" }}>
-          {user.display_name}
-        </h2>
-        <p className="mt-1 text-sm font-body" style={{ color: "var(--text-secondary)" }}>
-          {user.email}
-        </p>
-        <div
-          className="mt-3 rounded-full px-3 py-1 text-xs font-semibold font-display uppercase tracking-wider"
-          style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.09)", color: "var(--text-muted)" }}
-        >
-          Member since {memberSince}
-        </div>
-      </div>
-
-      <div className="mt-6 space-y-2">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wider font-display" style={{ color: "var(--text-muted)" }}>
-          Coming up next
-        </p>
-        <LockedFeature
-          label="PDF Import"
-          description="Upload W2s and brokerage statements — we extract everything automatically."
-        />
-        <LockedFeature
-          label="Multi-year History"
-          description="Track tax trends and net worth across multiple years side by side."
-        />
-        <LockedFeature
-          label="CPA Export"
-          description="Generate a clean summary PDF ready to hand off to your accountant."
-        />
-      </div>
-
-      <button
-        onClick={onSignOut}
-        className="mt-7 w-full rounded-lg py-2.5 text-sm font-semibold font-display uppercase tracking-wider transition-all duration-150"
-        style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.09)", color: "var(--text-muted)" }}
-        onMouseEnter={(e) => {
-          (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,68,85,0.3)";
-          (e.currentTarget as HTMLButtonElement).style.color = "var(--negative)";
-        }}
-        onMouseLeave={(e) => {
-          (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,255,255,0.09)";
-          (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)";
-        }}
-      >
-        Sign Out
-      </button>
-    </Card>
-  );
-}
-
 // ─── Main component ───────────────────────────────────────────────────────────
 interface AccountAuthProps {
   onAuth?: (user: AuthUser) => void;
 }
 
 export default function AccountAuth({ onAuth }: AccountAuthProps = {}) {
-  const [view, setView] = useState<View>("checking");
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [view, setView] = useState<View>("login");
   const [animKey, setAnimKey] = useState(0);
   const [slideDir, setSlideDir] = useState<"left" | "right">("left");
 
-  useEffect(() => {
-    const token = getToken();
-    if (!token) { setView("login"); return; }
-    authMe(token)
-      .then((u) => { setUser(u); setView("profile"); onAuth?.(u); })
-      .catch(() => { removeToken(); setView("login"); });
-  }, []);
-
   const handleAuthSuccess = (u: AuthUser) => {
-    setUser(u);
-    setSlideDir("left");
-    setAnimKey((k) => k + 1);
-    setView("profile");
     onAuth?.(u);
-  };
-
-  const handleSignOut = () => {
-    removeToken();
-    setUser(null);
-    setView("login");
   };
 
   const toRegister = () => {
@@ -511,10 +379,7 @@ export default function AccountAuth({ onAuth }: AccountAuthProps = {}) {
   };
 
   return (
-    <div
-      className="relative flex min-h-[calc(100vh-56px)] items-center justify-center px-6 py-16 overflow-hidden"
-    >
-      {/* Ambient glow orbs */}
+    <div className="relative flex min-h-[calc(100vh-56px)] items-center justify-center px-6 py-16 overflow-hidden">
       <div
         className="pointer-events-none absolute"
         style={{
@@ -532,29 +397,17 @@ export default function AccountAuth({ onAuth }: AccountAuthProps = {}) {
       />
 
       <div className="relative w-full max-w-md">
-        {view === "checking" ? (
-          <div className="flex justify-center py-20">
-            <div
-              className="spinner h-8 w-8 rounded-full border-2"
-              style={{ borderColor: "rgba(255,255,255,0.1)", borderTopColor: "var(--accent)" }}
-            />
-          </div>
-        ) : (
-          <div
-            key={animKey}
-            className={slideDir === "left" ? "slide-from-right" : "slide-from-left"}
-          >
-            {view === "login" && (
-              <LoginView onSuccess={handleAuthSuccess} onToggle={toRegister} />
-            )}
-            {view === "register" && (
-              <RegisterView onSuccess={handleAuthSuccess} onToggle={toLogin} />
-            )}
-            {view === "profile" && user && (
-              <ProfileView user={user} onSignOut={handleSignOut} />
-            )}
-          </div>
-        )}
+        <div
+          key={animKey}
+          className={slideDir === "left" ? "slide-from-right" : "slide-from-left"}
+        >
+          {view === "login" && (
+            <LoginView onSuccess={handleAuthSuccess} onToggle={toRegister} />
+          )}
+          {view === "register" && (
+            <RegisterView onSuccess={handleAuthSuccess} onToggle={toLogin} />
+          )}
+        </div>
       </div>
     </div>
   );

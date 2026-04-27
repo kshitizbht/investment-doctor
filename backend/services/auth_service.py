@@ -11,7 +11,9 @@ from sqlalchemy.orm import Session
 from backend.db.models import AuthUser
 from backend.db.session import get_db
 
-SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "dev-insecure-fallback-change-in-prod")
+SECRET_KEY: str = os.environ.get("JWT_SECRET_KEY", "")
+if not SECRET_KEY:
+    raise RuntimeError("JWT_SECRET_KEY env var is not set. Add it to your .env file.")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 7
 

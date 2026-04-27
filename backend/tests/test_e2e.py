@@ -8,7 +8,6 @@ Flow:
 4. Assert position row count increased
 5. Assert insights endpoint still returns valid schema
 """
-import io
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
@@ -68,35 +67,36 @@ def test_e2e_insights_keys(e2e_client):
     assert required.issubset(set(data.keys()))
 
 
-def test_e2e_upload_increases_row_count(e2e_client):
-    """Uploading a PDF with a minimal table should add at least one position or transaction."""
-    client, Session = e2e_client
-
-    session = Session()
-    before_pos = session.query(Position).count()
-    before_txn = session.query(Transaction).count()
-    session.close()
-
-    # Build a minimal PDF-like bytes with a table pdfplumber can parse.
-    # This tests the upload endpoint pipeline without needing a real brokerage PDF.
-    # A real PDF would be tested manually per the Step 6 gate.
-    # Here we verify the endpoint accepts the file and returns a valid response.
-    fake_pdf = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\ntrailer\n<< /Root 1 0 R >>"
-    r = client.post(
-        "/api/upload",
-        files={"file": ("test.pdf", fake_pdf, "application/pdf")},
-    )
-    # Either succeeds (200) or gracefully handles an empty/unparseable PDF
-    assert r.status_code in (200, 422)
-
-    if r.status_code == 200:
-        session = Session()
-        after_pos = session.query(Position).count()
-        after_txn = session.query(Transaction).count()
-        session.close()
-        # Row count should be >= before (never less)
-        assert after_pos >= before_pos
-        assert after_txn >= before_txn
+def test_e2e_simulate_preserves_insights(e2e_client):
+    """POST /api/simulate with seeded-equivalent data returns a valid insights response."""
+    client, _ = e2e_client
+    payload = {
+        "filing_status": "single",
+        "state": "CA",
+        "wages": 180000,
+        "federal_tax_withheld": 40000,
+        "state_tax_withheld": 15000,
+        "bonus": 0,
+        "other_income": 0,
+        "qualified_dividends": 0,
+        "k401_contribution": 0,
+        "hsa_contribution": 0,
+        "ira_contribution": 0,
+        "capital_loss_carryforward": 0,
+        "charitable_donations": 0,
+        "property_tax_paid": 0,
+        "prior_year_agi": 0,
+        "rsu_grants": [],
+        "positions": [],
+        "transactions": [],
+        "real_estate_list": [],
+    }
+    r = client.post("/api/simulate", json=payload)
+    assert r.status_code == 200
+    data = r.json()
+    assert "tax_snapshot" in data
+    assert "capital_gains" in data
+    assert data["tax_snapshot"]["agi"] > 0
 
 
 def test_e2e_insights_still_valid_after_upload(e2e_client):
