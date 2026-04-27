@@ -1,4 +1,7 @@
+"use client";
+
 import type { HoldingPeriodAlert } from "@/lib/api";
+import ClickableTicker from "@/components/ClickableTicker";
 
 const fmt = (n: number) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -36,9 +39,11 @@ export default function HoldingPeriodCard({ data }: { data: HoldingPeriodAlert[]
             style={{ background: "rgba(245,166,35,0.05)", border: "1px solid rgba(245,166,35,0.1)" }}
           >
             <div>
-              <span className="font-medium font-display text-sm" style={{ color: "var(--text-primary)" }}>
-                {alert.ticker_or_name}
-              </span>
+              <ClickableTicker
+                ticker={alert.ticker_or_name}
+                assetType={alert.asset_type}
+                style={{ color: "var(--text-primary)", fontFamily: "var(--font-display)", fontWeight: 500, fontSize: "0.875rem" }}
+              />
               <p className="text-xs mt-0.5" style={{ color: "var(--text-secondary)" }}>
                 Long-term in{" "}
                 <span className="font-mono font-bold" style={{ color: "var(--accent)" }}>

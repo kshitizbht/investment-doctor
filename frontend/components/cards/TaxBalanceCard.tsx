@@ -13,7 +13,7 @@ export default function TaxBalanceCard({ data }: { data: TaxBalance }) {
   return (
     <div
       className="card-animate card-glow rounded-xl border p-6"
-      style={{ background: "var(--surface)", borderColor: "var(--border)", "--card-delay": "0ms" } as React.CSSProperties}
+      style={{ background: "rgba(255,255,255,0.055)", borderColor: "rgba(255,255,255,0.1)", boxShadow: "inset 3px 0 0 rgba(245,166,35,0.65)", "--card-delay": "0ms" } as React.CSSProperties}
     >
       <h2 className="mb-5 text-xs font-semibold uppercase tracking-widest font-display" style={{ color: "var(--accent)" }}>
         Tax Balance

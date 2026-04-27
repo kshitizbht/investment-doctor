@@ -23,7 +23,7 @@ export default function TabNav({ activeTab, onTabChange }: TabNavProps) {
         borderBottom: "1px solid rgba(255,255,255,0.06)",
       }}
     >
-      <div className="mx-auto max-w-6xl h-full px-6 flex items-center justify-between">
+      <div className="mx-auto max-w-screen-2xl h-full px-8 flex items-center justify-between">
         {/* Wordmark */}
         <div className="font-display font-bold text-base tracking-tight select-none">
           <span style={{ color: "rgba(255,255,255,0.55)" }}>Investment</span>

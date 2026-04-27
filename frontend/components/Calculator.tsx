@@ -232,7 +232,7 @@ export default function Calculator() {
     <div className="flex h-[calc(100vh-56px)] gap-5">
       {/* ── Sidebar ── */}
       <aside
-        className="w-72 flex-shrink-0 overflow-y-auto scrollbar-thin py-4 pr-1"
+        className="w-80 flex-shrink-0 overflow-y-auto scrollbar-thin py-4 pr-1"
         style={{ borderRight: "1px solid var(--border)" }}
       >
         <div className="space-y-1 px-1">
@@ -290,7 +290,7 @@ export default function Calculator() {
           </details>
 
           {/* Equity Compensation */}
-          <details open className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+          <details className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
             <SectionHeader title="Equity Comp (RSU/ESPP)" />
             <div className="px-2 pb-3 pt-1">
               {form.rsu_grants.length > 0 && (
@@ -339,7 +339,7 @@ export default function Calculator() {
           </details>
 
           {/* Retirement */}
-          <details open className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+          <details className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
             <SectionHeader title="Retirement" />
             <div className="px-3 pb-3 pt-1 space-y-3">
               <Field label="401(k) / 403(b) YTD ($)">
@@ -374,7 +374,7 @@ export default function Calculator() {
           </details>
 
           {/* Open Positions */}
-          <details open className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+          <details className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
             <SectionHeader title="Open Positions" />
             <div className="px-2 pb-3 pt-1">
               <div className="grid gap-1 mb-1 px-1" style={{ gridTemplateColumns: "14px 48px 1fr 52px 58px 58px" }}>
@@ -429,7 +429,7 @@ export default function Calculator() {
           </details>
 
           {/* Real Estate */}
-          <details open className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+          <details className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
             <SectionHeader title="Real Estate" />
             <div className="px-2 pb-3 pt-1 space-y-2">
               {form.real_estate_list.length === 0 && (
@@ -516,8 +516,8 @@ export default function Calculator() {
 
         {results ? (
           <div className="space-y-4">
-            <DashboardCards data={results} />
             <AskClaude snapshot={results} />
+            <DashboardCards data={results} />
           </div>
         ) : !error ? (
           <div className="flex h-40 items-center justify-center">

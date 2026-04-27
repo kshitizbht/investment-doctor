@@ -1,4 +1,7 @@
+"use client";
+
 import type { EquityAnalysis } from "@/lib/api";
+import ClickableTicker from "@/components/ClickableTicker";
 
 const fmt = (n: number) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -75,7 +78,11 @@ export default function EquityCard({ data }: { data: EquityAnalysis }) {
         >
           <div className="flex items-center justify-between mb-1.5">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-mono font-bold" style={{ color: "#F5A623" }}>{g.ticker}</span>
+              <ClickableTicker
+                ticker={g.ticker}
+                assetType="stock"
+                style={{ color: "#F5A623", fontFamily: "var(--font-mono)", fontWeight: 700, fontSize: "0.75rem" }}
+              />
               <span className="text-[10px] rounded-full px-1.5 py-0.5 font-mono" style={{ background: "rgba(245,166,35,0.1)", color: "rgba(245,166,35,0.7)" }}>{g.grant_type}</span>
             </div>
             <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>{g.shares_vested_ytd} shares @ ${g.fmv_at_vest.toLocaleString()}</span>

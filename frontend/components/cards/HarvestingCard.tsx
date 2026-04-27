@@ -1,4 +1,7 @@
+"use client";
+
 import type { Harvesting } from "@/lib/api";
+import ClickableTicker from "@/components/ClickableTicker";
 
 const fmt = (n: number) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -43,9 +46,11 @@ export default function HarvestingCard({ data }: { data: Harvesting }) {
             style={{ background: "rgba(255,255,255,0.03)" }}
           >
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-medium font-display text-sm" style={{ color: "var(--text-primary)" }}>
-                {opp.ticker_or_name}
-              </span>
+              <ClickableTicker
+                ticker={opp.ticker_or_name}
+                assetType={opp.asset_type}
+                style={{ color: "var(--text-primary)", fontFamily: "var(--font-display)", fontWeight: 500, fontSize: "0.875rem" }}
+              />
               <span className="text-xs" style={{ color: "var(--text-muted)" }}>{opp.asset_type}</span>
               {opp.wash_sale_risk && (
                 <span
