@@ -339,3 +339,213 @@ export async function authMe(token: string): Promise<AuthUser> {
     headers: { Authorization: `Bearer ${token}` },
   });
 }
+
+// ─── Account types ────────────────────────────────────────────────────────────
+
+export interface AccountStatus {
+  onboarding_complete: boolean;
+  steps_complete: { tax: boolean; retirement: boolean; brokerage: boolean; equity: boolean; real_estate: boolean };
+}
+
+export interface TaxData {
+  wages: number;
+  bonus: number;
+  other_income: number;
+  qualified_dividends: number;
+  filing_status: string;
+  state: string;
+  federal_tax_withheld: number;
+  state_tax_withheld: number;
+  tax_year: number;
+  source_label: string;
+}
+
+export interface RetirementData {
+  k401_contribution: number;
+  hsa_contribution: number;
+  ira_contribution: number;
+  charitable_donations: number;
+  property_tax_paid: number;
+  capital_loss_carryforward: number;
+  prior_year_agi: number;
+  tax_year: number;
+}
+
+export interface AccountPosition {
+  id?: number;
+  asset_type: string;
+  ticker_or_name: string;
+  quantity: number;
+  cost_basis_per_unit: number;
+  current_price: number;
+  purchase_date: string;
+  expiry_date?: string;
+  is_short?: boolean;
+  strike_price?: number;
+}
+
+export interface AccountTransaction {
+  id?: number;
+  asset_type: string;
+  ticker_or_name: string;
+  action: string;
+  quantity: number;
+  price_per_unit: number;
+  total_proceeds: number;
+  total_cost_basis: number;
+  transaction_date: string;
+  is_wash_sale?: boolean;
+}
+
+export interface AccountRSUGrant {
+  id?: number;
+  ticker: string;
+  grant_type: string;
+  shares_vested_ytd: number;
+  fmv_at_vest: number;
+  current_price: number;
+  shares_sold_at_vest: number;
+  next_vest_shares: number;
+  next_vest_date?: string;
+}
+
+export interface AccountRealEstate {
+  id?: number;
+  label: string;
+  purchase_price: number;
+  purchase_date: string;
+  current_estimated_value: number;
+  annual_rental_income: number;
+  depreciation_taken: number;
+  mortgage_interest_paid: number;
+}
+
+export interface ParsedBrokerageResult {
+  positions: AccountPosition[];
+  transactions: AccountTransaction[];
+}
+
+export interface ParsedTaxResult {
+  tax: Partial<TaxData>;
+  retirement: Partial<RetirementData>;
+  deductions: Partial<RetirementData>;
+  inferred_fields: string[];
+}
+
+// ─── Account API helpers ──────────────────────────────────────────────────────
+
+function accountFetch<T>(url: string, opts: RequestInit = {}): Promise<T> {
+  const token = getToken();
+  const isFormData = opts.body instanceof FormData;
+  return authFetch<T>(url, {
+    ...opts,
+    headers: {
+      ...(opts.headers ?? {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(!isFormData ? { "Content-Type": "application/json" } : {}),
+    },
+  });
+}
+
+// ─── Account API functions ────────────────────────────────────────────────────
+
+export const getAccountStatus = () =>
+  accountFetch<AccountStatus>("/api/account/status");
+
+export const getTaxData = () =>
+  accountFetch<TaxData | null>("/api/account/data/tax");
+
+export const saveTaxData = (data: Omit<TaxData, "source_label"> & { source_label?: string }) =>
+  accountFetch<TaxData>("/api/account/data/tax", {
+    method: "POST",
+    body: JSON.stringify({ source_label: "employer_1", ...data }),
+  });
+
+export const getRetirementData = () =>
+  accountFetch<RetirementData | null>("/api/account/data/retirement");
+
+export const saveRetirementData = (data: Partial<RetirementData>) =>
+  accountFetch<RetirementData>("/api/account/data/retirement", {
+    method: "POST",
+    body: JSON.stringify({ tax_year: 2024, k401_contribution: 0, hsa_contribution: 0, ira_contribution: 0, charitable_donations: 0, property_tax_paid: 0, capital_loss_carryforward: 0, prior_year_agi: 0, ...data }),
+  });
+
+export const getPositions = () =>
+  accountFetch<AccountPosition[]>("/api/account/data/positions");
+
+export const savePositions = (positions: AccountPosition[]) =>
+  accountFetch<AccountPosition[]>("/api/account/data/positions", {
+    method: "POST",
+    body: JSON.stringify(positions),
+  });
+
+export const updatePosition = (id: number, data: AccountPosition) =>
+  accountFetch<AccountPosition>(`/api/account/data/positions/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+
+export const deletePosition = (id: number) =>
+  accountFetch<{ ok: boolean }>(`/api/account/data/positions/${id}`, { method: "DELETE" });
+
+export const getTransactions = () =>
+  accountFetch<AccountTransaction[]>("/api/account/data/transactions");
+
+export const saveTransactions = (transactions: AccountTransaction[]) =>
+  accountFetch<AccountTransaction[]>("/api/account/data/transactions", {
+    method: "POST",
+    body: JSON.stringify(transactions),
+  });
+
+export const getRSUGrants = () =>
+  accountFetch<AccountRSUGrant[]>("/api/account/data/rsu");
+
+export const saveRSUGrants = (grants: AccountRSUGrant[]) =>
+  accountFetch<AccountRSUGrant[]>("/api/account/data/rsu", {
+    method: "POST",
+    body: JSON.stringify(grants),
+  });
+
+export const updateRSUGrant = (id: number, data: AccountRSUGrant) =>
+  accountFetch<AccountRSUGrant>(`/api/account/data/rsu/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+
+export const deleteRSUGrant = (id: number) =>
+  accountFetch<{ ok: boolean }>(`/api/account/data/rsu/${id}`, { method: "DELETE" });
+
+export const getRealEstate = () =>
+  accountFetch<AccountRealEstate[]>("/api/account/data/real_estate");
+
+export const saveRealEstate = (properties: AccountRealEstate[]) =>
+  accountFetch<AccountRealEstate[]>("/api/account/data/real_estate", {
+    method: "POST",
+    body: JSON.stringify(properties),
+  });
+
+export const updateRealEstateItem = (id: number, data: AccountRealEstate) =>
+  accountFetch<AccountRealEstate>(`/api/account/data/real_estate/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+
+export const deleteRealEstateItem = (id: number) =>
+  accountFetch<{ ok: boolean }>(`/api/account/data/real_estate/${id}`, { method: "DELETE" });
+
+export const completeOnboarding = () =>
+  accountFetch<{ onboarding_complete: boolean }>("/api/account/complete-onboarding", {
+    method: "POST",
+  });
+
+export const parseTaxPDF = (file: File) => {
+  const form = new FormData();
+  form.append("file", file);
+  return accountFetch<ParsedTaxResult>("/api/account/parse-pdf/tax", { method: "POST", body: form });
+};
+
+export const parseBrokeragePDF = (file: File) => {
+  const form = new FormData();
+  form.append("file", file);
+  return accountFetch<ParsedBrokerageResult>("/api/account/parse-pdf/brokerage", { method: "POST", body: form });
+};

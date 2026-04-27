@@ -7,8 +7,10 @@ Base = declarative_base()
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    filing_status = Column(String(20), nullable=False)
-    state = Column(String(2), nullable=False)
+    auth_user_id = Column(Integer, nullable=True, index=True)
+    filing_status = Column(String(20), nullable=False, default="single")
+    state = Column(String(2), nullable=False, default="CA")
+    onboarding_complete = Column(Boolean, nullable=False, default=False)
 
 
 class W2Income(Base):
@@ -20,6 +22,9 @@ class W2Income(Base):
     federal_tax_withheld = Column(Integer, nullable=False)
     state_tax_withheld = Column(Integer, nullable=False)
     source_label = Column(String(50), nullable=False)
+    bonus = Column(Integer, nullable=False, default=0)
+    other_income = Column(Integer, nullable=False, default=0)
+    qualified_dividends = Column(Integer, nullable=False, default=0)
 
 
 class Position(Base):
@@ -63,6 +68,34 @@ class RealEstate(Base):
     annual_rental_income = Column(Integer, nullable=False)
     depreciation_taken = Column(Integer, nullable=False, default=0)
     mortgage_interest_paid = Column(Integer, nullable=False, default=0)
+
+
+class UserDeductions(Base):
+    __tablename__ = "user_deductions"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    tax_year = Column(Integer, nullable=False, default=2024)
+    k401_contribution = Column(Integer, nullable=False, default=0)
+    hsa_contribution = Column(Integer, nullable=False, default=0)
+    ira_contribution = Column(Integer, nullable=False, default=0)
+    charitable_donations = Column(Integer, nullable=False, default=0)
+    property_tax_paid = Column(Integer, nullable=False, default=0)
+    capital_loss_carryforward = Column(Integer, nullable=False, default=0)
+    prior_year_agi = Column(Integer, nullable=False, default=0)
+
+
+class RSUGrant(Base):
+    __tablename__ = "rsu_grants"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False)
+    ticker = Column(String(20), nullable=False)
+    grant_type = Column(String(20), nullable=False, default="RSU")
+    shares_vested_ytd = Column(Integer, nullable=False, default=0)
+    fmv_at_vest = Column(Numeric(18, 4), nullable=False, default=0)
+    current_price = Column(Numeric(18, 4), nullable=False, default=0)
+    shares_sold_at_vest = Column(Integer, nullable=False, default=0)
+    next_vest_shares = Column(Integer, nullable=False, default=0)
+    next_vest_date = Column(Date, nullable=True)
 
 
 class NetWorthSnapshot(Base):

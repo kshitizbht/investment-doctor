@@ -1,12 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { InsightsResponse } from "@/lib/api";
-import { fetchInsights } from "@/lib/api";
+import type { AuthUser, InsightsResponse } from "@/lib/api";
+import { fetchInsights, getAccountStatus, getToken, removeToken } from "@/lib/api";
 import TabNav from "@/components/TabNav";
 import DashboardCards from "@/components/DashboardCards";
 import Calculator from "@/components/Calculator";
 import AccountAuth from "@/components/AccountAuth";
+import OnboardingWizard, {
+  TaxEditor, RetirementEditor, BrokerageEditor, EquityEditor, RealEstateEditor,
+} from "@/components/OnboardingWizard";
+import AccountDashboard from "@/components/AccountDashboard";
 
 const fmtShort = (n: number) => {
   const abs = Math.abs(n);
@@ -93,6 +97,21 @@ function SummaryStrip({ data }: { data: InsightsResponse }) {
 }
 
 type Tab = "demo" | "calculator" | "account";
+type AccountEditSection = "tax" | "retirement" | "brokerage" | "equity" | "real_estate";
+
+function SectionEditor({ section, onBack }: { section: AccountEditSection; onBack: () => void }) {
+  if (section === "tax") return <TaxEditor onBack={onBack} />;
+  if (section === "retirement") return <RetirementEditor onBack={onBack} />;
+  if (section === "brokerage") return <BrokerageEditor onBack={onBack} />;
+  if (section === "equity") return <EquityEditor onBack={onBack} />;
+  return <RealEstateEditor onBack={onBack} />;
+}
+type AccountView =
+  | "auth"
+  | "checking"
+  | "onboarding"
+  | "dashboard"
+  | { edit: "tax" | "retirement" | "brokerage" | "equity" | "real_estate" };
 
 // ─── Demo tab ─────────────────────────────────────────────────────────────
 function DemoTab() {
@@ -159,6 +178,36 @@ function DemoTab() {
 // ─── Root page ─────────────────────────────────────────────────────────────
 export default function Page() {
   const [activeTab, setActiveTab] = useState<Tab>("demo");
+  const [accountView, setAccountView] = useState<AccountView>("auth");
+  const [accountUser, setAccountUser] = useState<AuthUser | null>(null);
+
+  // When switching to account tab, check existing token and onboarding status
+  useEffect(() => {
+    if (activeTab !== "account") return;
+    const token = getToken();
+    if (!token) { setAccountView("auth"); return; }
+    setAccountView("checking");
+    getAccountStatus()
+      .then((s) => setAccountView(s.onboarding_complete ? "dashboard" : "onboarding"))
+      .catch(() => { removeToken(); setAccountView("auth"); });
+  }, [activeTab]);
+
+  const handleAuth = async (user: AuthUser) => {
+    setAccountUser(user);
+    setAccountView("checking");
+    try {
+      const s = await getAccountStatus();
+      setAccountView(s.onboarding_complete ? "dashboard" : "onboarding");
+    } catch {
+      setAccountView("onboarding");
+    }
+  };
+
+  const handleSignOut = () => {
+    removeToken();
+    setAccountUser(null);
+    setAccountView("auth");
+  };
 
   return (
     <>
@@ -188,7 +237,49 @@ export default function Page() {
           </div>
         )}
 
-        {activeTab === "account" && <AccountAuth />}
+        {activeTab === "account" && (
+          <>
+            {accountView === "auth" && (
+              <AccountAuth onAuth={handleAuth} />
+            )}
+            {accountView === "checking" && (
+              <div className="flex min-h-[calc(100vh-56px)] items-center justify-center">
+                <div className="flex items-center gap-3" style={{ color: "var(--text-muted)" }}>
+                  <div className="spinner h-5 w-5 rounded-full border-2" style={{ borderColor: "rgba(255,255,255,0.1)", borderTopColor: "var(--accent)" }} />
+                  <span className="text-sm font-body">Loading your account…</span>
+                </div>
+              </div>
+            )}
+            {accountView === "onboarding" && (
+              <OnboardingWizard
+                user={accountUser}
+                onComplete={() => setAccountView("dashboard")}
+              />
+            )}
+            {accountView === "dashboard" && (
+              <AccountDashboard
+                user={accountUser}
+                onEdit={(section) => setAccountView({ edit: section })}
+                onSignOut={handleSignOut}
+              />
+            )}
+            {typeof accountView === "object" && "edit" in accountView && (
+              <div className="mx-auto max-w-3xl px-8 py-10">
+                <button
+                  onClick={() => setAccountView("dashboard")}
+                  className="mb-6 flex items-center gap-2 text-sm font-body transition-colors"
+                  style={{ color: "var(--text-muted)" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
+                >
+                  ← Back to Dashboard
+                </button>
+                {/* Section editors rendered from OnboardingWizard exports */}
+                <SectionEditor section={accountView.edit} onBack={() => setAccountView("dashboard")} />
+              </div>
+            )}
+          </>
+        )}
       </main>
     </>
   );

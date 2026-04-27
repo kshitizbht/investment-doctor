@@ -466,7 +466,11 @@ function ProfileView({ user, onSignOut }: { user: AuthUser; onSignOut: () => voi
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export default function AccountAuth() {
+interface AccountAuthProps {
+  onAuth?: (user: AuthUser) => void;
+}
+
+export default function AccountAuth({ onAuth }: AccountAuthProps = {}) {
   const [view, setView] = useState<View>("checking");
   const [user, setUser] = useState<AuthUser | null>(null);
   const [animKey, setAnimKey] = useState(0);
@@ -476,7 +480,7 @@ export default function AccountAuth() {
     const token = getToken();
     if (!token) { setView("login"); return; }
     authMe(token)
-      .then((u) => { setUser(u); setView("profile"); })
+      .then((u) => { setUser(u); setView("profile"); onAuth?.(u); })
       .catch(() => { removeToken(); setView("login"); });
   }, []);
 
@@ -485,6 +489,7 @@ export default function AccountAuth() {
     setSlideDir("left");
     setAnimKey((k) => k + 1);
     setView("profile");
+    onAuth?.(u);
   };
 
   const handleSignOut = () => {
