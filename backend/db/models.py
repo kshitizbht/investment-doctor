@@ -84,3 +84,12 @@ class Upload(Base):
     upload_date = Column(DateTime, nullable=False)
     parsed_status = Column(String(20), nullable=False)
     extracted_field_count = Column(Integer, nullable=False, default=0)
+
+
+class AuthUser(Base):
+    __tablename__ = "auth_users"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String(255), nullable=False, unique=True, index=True)
+    display_name = Column(String(100), nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    created_at = Column(DateTime, nullable=False)

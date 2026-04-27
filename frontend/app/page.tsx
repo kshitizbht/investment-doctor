@@ -6,7 +6,7 @@ import { fetchInsights } from "@/lib/api";
 import TabNav from "@/components/TabNav";
 import DashboardCards from "@/components/DashboardCards";
 import Calculator from "@/components/Calculator";
-import AccountPlaceholder from "@/components/AccountPlaceholder";
+import AccountAuth from "@/components/AccountAuth";
 
 const fmtShort = (n: number) => {
   const abs = Math.abs(n);
@@ -144,7 +144,7 @@ function DemoTab() {
     <div>
       <div className="mb-5">
         <h1 className="text-2xl font-bold font-display" style={{ color: "var(--text-primary)" }}>
-          Tax Intelligence Dashboard
+          Demo AI Insights Dashboard
         </h1>
         <p className="mt-1 text-sm font-body" style={{ color: "var(--text-muted)" }}>
           2024 tax year · John Doe · Single filer · California
@@ -178,7 +178,7 @@ export default function Page() {
           <div className="mx-auto max-w-screen-2xl px-8">
             <div className="py-4 mb-2">
               <h1 className="text-2xl font-bold font-display" style={{ color: "var(--text-primary)" }}>
-                Tax Calculator
+                Financial Calculator
               </h1>
               <p className="mt-1 text-sm font-body" style={{ color: "var(--text-muted)" }}>
                 Adjust any field to see recommendations update in real-time
@@ -188,7 +188,7 @@ export default function Page() {
           </div>
         )}
 
-        {activeTab === "account" && <AccountPlaceholder />}
+        {activeTab === "account" && <AccountAuth />}
       </main>
     </>
   );

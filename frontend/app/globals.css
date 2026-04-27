@@ -118,3 +118,18 @@ input[type='date']::-webkit-calendar-picker-indicator {
     text-wrap: balance;
   }
 }
+
+@keyframes slide-in-from-right {
+  from { transform: translateX(32px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes slide-in-from-left {
+  from { transform: translateX(-32px); opacity: 0; }
+  to   { transform: translateX(0);     opacity: 1; }
+}
+.slide-from-right {
+  animation: slide-in-from-right 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.slide-from-left {
+  animation: slide-in-from-left 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}

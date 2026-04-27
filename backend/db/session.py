@@ -1,15 +1,13 @@
-import os
-from dotenv import load_dotenv
+from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from backend.db.models import Base
 
-load_dotenv()
+_DB_PATH = Path(__file__).resolve().parent.parent.parent / "investment_doctor.db"
+DATABASE_URL = f"sqlite:///{_DB_PATH}"
 
-_password = os.getenv("MYSQL_PASSWORD", "")
-_userinfo = f"root:{_password}" if _password else "root"
-DATABASE_URL = f"mysql+pymysql://{_userinfo}@127.0.0.1:3306/investment_doctor"
-
-engine = create_engine(DATABASE_URL)
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+Base.metadata.create_all(bind=engine)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

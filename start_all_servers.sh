@@ -2,16 +2,18 @@
 set -euo pipefail
 
 PYTHON=/Library/Frameworks/Python.framework/Versions/3.12/bin/python3
-MYSQL=/usr/local/mysql-9.7.0-macos15-arm64/bin/mysqladmin
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# ── 1. Check MySQL is reachable ───────────────────────────────────────────────
-echo "Checking MySQL..."
-if ! "$MYSQL" -u root -pP455w0rd ping --silent 2>/dev/null; then
-  echo "ERROR: MySQL is not running. Start it and retry."
-  exit 1
+# ── 1. Initialize SQLite DB if not present ────────────────────────────────────
+DB_FILE="$PROJECT_DIR/investment_doctor.db"
+if [ ! -f "$DB_FILE" ]; then
+  echo "No database found — seeding demo data..."
+  cd "$PROJECT_DIR"
+  "$PYTHON" -m backend.db.seed
+  echo "  Database: seeded at $DB_FILE"
+else
+  echo "  Database: $DB_FILE"
 fi
-echo "  MySQL: ok"
 
 # ── 2. Start backend ──────────────────────────────────────────────────────────
 echo "Starting backend..."

@@ -270,3 +270,72 @@ export async function simulateInsights(req: SimulateRequest, signal?: AbortSigna
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
+
+// ─── Auth types ───────────────────────────────────────────────────────────────
+
+export interface AuthUser {
+  id: number;
+  email: string;
+  display_name: string;
+  created_at: string;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: "bearer";
+  user: AuthUser;
+}
+
+// ─── Token helpers (localStorage, SSR-safe) ───────────────────────────────────
+
+const TOKEN_KEY = "idr_token";
+
+export function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function removeToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+// ─── Auth API functions ───────────────────────────────────────────────────────
+
+async function authFetch<T>(url: string, opts: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${url}`, opts);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function authRegister(
+  email: string,
+  display_name: string,
+  password: string,
+): Promise<AuthResponse> {
+  return authFetch("/api/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, display_name, password }),
+  });
+}
+
+export async function authLogin(email: string, password: string): Promise<AuthResponse> {
+  return authFetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function authMe(token: string): Promise<AuthUser> {
+  return authFetch("/api/auth/me", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}

@@ -103,22 +103,18 @@ Schema applied, seed loaded, all verification gates (Steps 1–9) pass cleanly.
 
 | Setting | Value |
 |---|---|
-| Python | 3.11 |
-| MySQL host | 127.0.0.1 |
-| MySQL port | 3306 |
-| MySQL database | `investment_doctor` |
-| MySQL user | `root` |
-| MySQL password | `P455w0rd` (set via `.env` → `MYSQL_PASSWORD`) |
+| Python | 3.12 (`/Library/Frameworks/Python.framework/Versions/3.12/bin/python3`) |
+| Database | SQLite — `investment_doctor.db` at project root (git-ignored via `*.db`) |
 | FastAPI port | 8000 |
 | Next.js port | 3000 |
 
 ### One-time setup
 ```bash
-# Create the database (run once)
-mysql -u root -e "CREATE DATABASE IF NOT EXISTS investment_doctor;"
-
 # Install Python deps (from backend/)
 pip install -r backend/requirements.txt
+
+# Seed demo data (creates investment_doctor.db automatically)
+python3 -m backend.db.seed
 
 # Install Node deps (from frontend/)
 npm install --prefix frontend
@@ -156,12 +152,12 @@ These apply to every file you write. No exceptions.
 | `PLAN.md` | Full build order, verification gates, API schema — source of truth |
 | `CLAUDE.md` | This file — session handoff context |
 | `docs/plan-three-tabs.md` | Implementation plan for the 3-tab UI feature |
-| `backend/db/schema.sql` | MySQL CREATE TABLE statements |
+| `backend/db/schema.sql` | Reference DDL (SQLite syntax) — schema managed by SQLAlchemy ORM |
 | `backend/db/seed.py` | John Doe mock data loader (uses `round_up_to_100`) |
 | `backend/services/anonymize.py` | `round_up_to_100(value) -> int` |
 | `backend/services/tax_engine.py` | Gain/loss calc, bracket lookup, harvesting scorer |
 | `backend/services/pdf_parser.py` | pdfplumber extraction — allowlist only, no raw text |
-| `backend/routers/insights.py` | `GET /api/insights` — reads from MySQL |
+| `backend/routers/insights.py` | `GET /api/insights` — reads from SQLite file DB |
 | `backend/routers/simulate.py` | `POST /api/simulate` — SQLite in-memory, same response shape |
 | `frontend/app/page.tsx` | Tab controller (Demo / Calculator / My Account) |
 | `frontend/components/TabNav.tsx` | Fixed header with 3 tabs, amber underline |

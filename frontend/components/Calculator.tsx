@@ -105,11 +105,42 @@ const inputFocusStyle = {
   background: "rgba(245,166,35,0.04)",
 };
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Tooltip({ text }: { text: string }) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  return (
+    <span className="inline-flex items-center" style={{ marginLeft: 3 }}>
+      <span
+        onMouseEnter={(e) => {
+          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          setPos({ x: rect.right + 10, y: rect.top - 4 });
+        }}
+        onMouseLeave={() => setPos(null)}
+        style={{ cursor: "help", color: "rgba(255,255,255,0.28)", fontSize: "9px", userSelect: "none", lineHeight: 1 }}
+      >
+        ⓘ
+      </span>
+      {pos && (
+        <div
+          style={{
+            position: "fixed", left: pos.x, top: pos.y, zIndex: 9999, width: 220,
+            background: "#0B1220", border: "1px solid rgba(245,166,35,0.25)", borderRadius: 8,
+            padding: "8px 10px", fontSize: "11px", lineHeight: 1.55, color: "rgba(255,255,255,0.78)",
+            boxShadow: "0 8px 28px rgba(0,0,0,0.55)", pointerEvents: "none",
+          }}
+        >
+          {text}
+        </div>
+      )}
+    </span>
+  );
+}
+
+function Field({ label, tooltip, children }: { label: string; tooltip?: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
-      <label className="text-xs" style={{ color: "var(--text-muted)", fontFamily: "var(--font-body)" }}>
+      <label className="flex items-center text-xs" style={{ color: "var(--text-muted)", fontFamily: "var(--font-body)" }}>
         {label}
+        {tooltip && <Tooltip text={tooltip} />}
       </label>
       {children}
     </div>
@@ -241,19 +272,19 @@ export default function Calculator() {
           <details open className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
             <SectionHeader title="Income" />
             <div className="px-3 pb-3 pt-1 space-y-3">
-              <Field label="W2 Wages ($)">
+              <Field label="W2 Wages ($)" tooltip="Gross salary from your W2 before deductions. Your primary income component that sets your federal and state tax bracket.">
                 <NumInput value={form.wages} onChange={(v) => setForm((f) => ({ ...f, wages: v }))} step={1000} />
               </Field>
-              <Field label="Bonus ($)">
+              <Field label="Bonus ($)" tooltip="Supplemental wages withheld at a flat 22% federal rate by your employer. Your actual marginal rate depends on total income and may be higher.">
                 <NumInput value={form.bonus} onChange={(v) => setForm((f) => ({ ...f, bonus: v }))} step={1000} />
               </Field>
-              <Field label="Other Income ($)">
+              <Field label="Other Income ($)" tooltip="Additional taxable income such as freelance, alimony, or prizes. Treated as ordinary income and increases your AGI.">
                 <NumInput value={form.other_income} onChange={(v) => setForm((f) => ({ ...f, other_income: v }))} step={500} />
               </Field>
-              <Field label="Qualified Dividends ($)">
+              <Field label="Qualified Dividends ($)" tooltip="Dividends eligible for lower capital gains rates (0%/15%/20%) instead of your full ordinary income rate. Requires holding the stock 60+ days around the ex-dividend date.">
                 <NumInput value={form.qualified_dividends} onChange={(v) => setForm((f) => ({ ...f, qualified_dividends: v }))} step={100} />
               </Field>
-              <Field label="Filing Status">
+              <Field label="Filing Status" tooltip="Determines your standard deduction and bracket thresholds. Married Filing Jointly has the widest brackets and a $30,000 standard deduction in 2025 — the most favorable status for most couples.">
                 <SelectInput
                   value={form.filing_status}
                   onChange={(v) => setForm((f) => ({ ...f, filing_status: v }))}
@@ -265,7 +296,7 @@ export default function Calculator() {
                   ]}
                 />
               </Field>
-              <Field label="State">
+              <Field label="State" tooltip="Your state of residence for tax purposes. TX, FL, and WA have no state income tax. CA tops out at 13.3% — one of the highest rates in the country.">
                 <SelectInput
                   value={form.state}
                   onChange={(v) => setForm((f) => ({ ...f, state: v }))}
@@ -279,10 +310,10 @@ export default function Calculator() {
                 />
               </Field>
               <div className="grid grid-cols-2 gap-2">
-                <Field label="Fed Withheld ($)">
+                <Field label="Fed Withheld ($)" tooltip="Federal income tax already withheld from your paychecks YTD. Too little can trigger an underpayment penalty; too much means a refund you gave the IRS interest-free.">
                   <NumInput value={form.federal_tax_withheld} onChange={(v) => setForm((f) => ({ ...f, federal_tax_withheld: v }))} step={500} />
                 </Field>
-                <Field label="State Withheld ($)">
+                <Field label="State Withheld ($)" tooltip="State income tax withheld from your paychecks YTD. Compare against your estimated state liability to catch shortfalls before year-end.">
                   <NumInput value={form.state_tax_withheld} onChange={(v) => setForm((f) => ({ ...f, state_tax_withheld: v }))} step={500} />
                 </Field>
               </div>
@@ -295,8 +326,16 @@ export default function Calculator() {
             <div className="px-2 pb-3 pt-1">
               {form.rsu_grants.length > 0 && (
                 <div className="grid gap-1 mb-1 px-1" style={{ gridTemplateColumns: "48px 44px 44px 52px" }}>
-                  {["Ticker", "Vested", "Sold", "FMV@Vest"].map((h) => (
-                    <span key={h} style={labelStyle}>{h}</span>
+                  {[
+                    { label: "Ticker", tip: "Company stock symbol (e.g., META, NVDA)." },
+                    { label: "Vested", tip: "Shares that vested this year. Each vested share is taxed as ordinary W2 income at the FMV on the vest date." },
+                    { label: "Sold", tip: "Shares sold at vest to cover tax withholding (sell-to-cover). Creates a small capital gain/loss if the price shifted." },
+                    { label: "FMV@Vest", tip: "Fair Market Value per share at the vesting date. This is your cost basis for those shares and is included in W2 income." },
+                  ].map(({ label, tip }) => (
+                    <span key={label} style={{ ...labelStyle, display: "flex", alignItems: "center" }}>
+                      {label}
+                      <Tooltip text={tip} />
+                    </span>
                   ))}
                 </div>
               )}
@@ -320,10 +359,10 @@ export default function Calculator() {
                     <MiniNumInput value={g.fmv_at_vest} onChange={(v) => updateRSU(i, { fmv_at_vest: v })} step={1} />
                   </div>
                   <div className="grid grid-cols-2 gap-1">
-                    <Field label="Current Price ($)">
+                    <Field label="Current Price ($)" tooltip="Current share price. Used to estimate unrealized gain/loss on the RSU shares you still hold.">
                       <MiniNumInput value={g.current_price} onChange={(v) => updateRSU(i, { current_price: v })} step={1} />
                     </Field>
-                    <Field label="Next Vest Shares">
+                    <Field label="Next Vest Shares" tooltip="Shares in your next scheduled vesting event. Used to project future RSU income and tax liability.">
                       <MiniNumInput value={g.next_vest_shares} onChange={(v) => updateRSU(i, { next_vest_shares: v })} step={1} />
                     </Field>
                   </div>
@@ -342,13 +381,13 @@ export default function Calculator() {
           <details className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
             <SectionHeader title="Retirement" />
             <div className="px-3 pb-3 pt-1 space-y-3">
-              <Field label="401(k) / 403(b) YTD ($)">
+              <Field label="401(k) / 403(b) YTD ($)" tooltip="Pre-tax contributions reduce taxable income dollar-for-dollar. 2025 limit: $23,500 ($31,000 if 50+). Maxing this is usually the highest-leverage tax move available to W2 employees.">
                 <NumInput value={form.k401_contribution} onChange={(v) => setForm((f) => ({ ...f, k401_contribution: v }))} step={500} />
               </Field>
-              <Field label="HSA Contribution ($)">
+              <Field label="HSA Contribution ($)" tooltip="Triple tax advantage: pre-tax contributions, tax-free growth, and tax-free withdrawals for medical expenses. 2025 limit: $4,300 individual / $8,550 family. Requires a high-deductible health plan (HDHP).">
                 <NumInput value={form.hsa_contribution} onChange={(v) => setForm((f) => ({ ...f, hsa_contribution: v }))} step={100} />
               </Field>
-              <Field label="Traditional IRA ($)">
+              <Field label="Traditional IRA ($)" tooltip="May be tax-deductible depending on income and access to a workplace plan. 2025 limit: $7,000 ($8,000 if 50+). High earners often use the Backdoor Roth strategy instead.">
                 <NumInput value={form.ira_contribution} onChange={(v) => setForm((f) => ({ ...f, ira_contribution: v }))} step={500} />
               </Field>
             </div>
@@ -358,16 +397,16 @@ export default function Calculator() {
           <details className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
             <SectionHeader title="Deductions" />
             <div className="px-3 pb-3 pt-1 space-y-3">
-              <Field label="Charitable Donations ($)">
+              <Field label="Charitable Donations ($)" tooltip="Cash gifts to IRS-qualified 501(c)(3) organizations. Only beneficial if your total itemized deductions exceed the standard deduction ($15,000 single / $30,000 MFJ in 2025).">
                 <NumInput value={form.charitable_donations} onChange={(v) => setForm((f) => ({ ...f, charitable_donations: v }))} step={500} />
               </Field>
-              <Field label="Property Tax Paid ($)">
+              <Field label="Property Tax Paid ($)" tooltip="Annual property taxes on real estate you own. Combined with state income tax, this is capped at a $10,000 SALT deduction when itemizing.">
                 <NumInput value={form.property_tax_paid} onChange={(v) => setForm((f) => ({ ...f, property_tax_paid: v }))} step={500} />
               </Field>
-              <Field label="Capital Loss Carryforward ($)">
+              <Field label="Capital Loss Carryforward ($)" tooltip="Net capital losses from prior years that exceeded the $3,000 annual limit. Offsets capital gains dollar-for-dollar, and up to $3,000/year absorbs ordinary income.">
                 <NumInput value={form.capital_loss_carryforward} onChange={(v) => setForm((f) => ({ ...f, capital_loss_carryforward: v }))} step={500} />
               </Field>
-              <Field label="Prior Year AGI ($)">
+              <Field label="Prior Year AGI ($)" tooltip="Safe-harbor rule: paying at least 100% of last year's tax bill (110% if AGI exceeded $150k) shields you from underpayment penalties, even if you owe more this year.">
                 <NumInput value={form.prior_year_agi} onChange={(v) => setForm((f) => ({ ...f, prior_year_agi: v }))} step={1000} />
               </Field>
             </div>
@@ -378,8 +417,18 @@ export default function Calculator() {
             <SectionHeader title="Open Positions" />
             <div className="px-2 pb-3 pt-1">
               <div className="grid gap-1 mb-1 px-1" style={{ gridTemplateColumns: "14px 48px 1fr 52px 58px 58px" }}>
-                {["", "Ticker", "Qty", "Mkt$", "Basis", "Date"].map((h) => (
-                  <span key={h} style={labelStyle}>{h}</span>
+                {[
+                  { label: "", tip: "" },
+                  { label: "Ticker", tip: "Asset symbol. Click the colored dot to cycle type: stock (amber) → crypto (red) → option (green)." },
+                  { label: "Qty", tip: "Number of shares, coins, or contracts you hold." },
+                  { label: "Mkt$", tip: "Current market price per unit. Drives your unrealized gain/loss calculation." },
+                  { label: "Basis", tip: "What you paid per unit (cost basis). Taxable gain = Mkt$ − Basis. Realized when you sell." },
+                  { label: "Date", tip: "Purchase date. Held >1 year = long-term rates (0–20%). Held ≤1 year = short-term, taxed as ordinary income." },
+                ].map(({ label, tip }) => (
+                  <span key={label} style={{ ...labelStyle, display: "flex", alignItems: "center" }}>
+                    {label}
+                    {tip && <Tooltip text={tip} />}
+                  </span>
                 ))}
               </div>
 
@@ -450,18 +499,18 @@ export default function Calculator() {
                     style={{ background: "rgba(255,255,255,0.04)", borderColor: "rgba(255,255,255,0.08)", color: "var(--text-primary)" }}
                   />
                   <div className="grid grid-cols-2 gap-2">
-                    <Field label="Purchase ($)">
+                    <Field label="Purchase ($)" tooltip="Original acquisition price. Establishes your cost basis for depreciation calculations and eventual capital gain when you sell.">
                       <MiniNumInput value={re.purchase_price} onChange={(v) => updateRE(i, { purchase_price: v })} step={5000} />
                     </Field>
-                    <Field label="Value ($)">
+                    <Field label="Value ($)" tooltip="Current estimated market value. Appreciation is unrealized — not taxed until you sell. Used in your total net worth calculation.">
                       <MiniNumInput value={re.current_estimated_value} onChange={(v) => updateRE(i, { current_estimated_value: v })} step={5000} />
                     </Field>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <Field label="Annual Rental ($)">
+                    <Field label="Annual Rental ($)" tooltip="Gross rental income this year. Taxed as ordinary income, but offset by deductible rental expenses like depreciation, repairs, and mortgage interest.">
                       <MiniNumInput value={re.annual_rental_income} onChange={(v) => updateRE(i, { annual_rental_income: v })} step={500} />
                     </Field>
-                    <Field label="Mortgage Int. ($)">
+                    <Field label="Mortgage Int. ($)" tooltip="Annual mortgage interest paid. Fully deductible as a rental expense. For a primary home, deductible as an itemized deduction on loans up to $750k (post-2017).">
                       <MiniNumInput value={re.mortgage_interest_paid} onChange={(v) => updateRE(i, { mortgage_interest_paid: v })} step={500} />
                     </Field>
                   </div>
