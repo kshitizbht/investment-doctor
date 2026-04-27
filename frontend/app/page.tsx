@@ -106,6 +106,124 @@ function SectionEditor({ section, onBack }: { section: AccountEditSection; onBac
   if (section === "equity") return <EquityEditor onBack={onBack} />;
   return <RealEstateEditor onBack={onBack} />;
 }
+
+// ─── Method picker → section editor ───────────────────────────────────────────
+
+type EditMethod = "pdf" | "manual";
+
+const SECTION_LABELS: Record<AccountEditSection, string> = {
+  tax: "Tax & Income",
+  retirement: "Retirement & Deductions",
+  brokerage: "Brokerage",
+  equity: "Equity Compensation",
+  real_estate: "Real Estate",
+};
+
+const SECTION_PDF_DESC: Record<AccountEditSection, string> = {
+  tax: "W-2 or 1040",
+  retirement: "1040 or paystub",
+  brokerage: "Brokerage statement",
+  equity: "Equity comp statement",
+  real_estate: "Property documents",
+};
+
+function SectionEditWithMethod({ section, onBack }: { section: AccountEditSection; onBack: () => void }) {
+  const [method, setMethod] = useState<EditMethod | null>(null);
+
+  if (method === null) {
+    const cards = [
+      { key: "pdf" as EditMethod, icon: "📄", title: "Import PDF", desc: SECTION_PDF_DESC[section] },
+      { key: "manual" as EditMethod, icon: "✏️", title: "Enter Manually", desc: "Type in your values directly" },
+      { key: null, icon: "🔗", title: "Connect Provider", desc: "Coming soon", disabled: true },
+    ];
+    return (
+      <div className="relative flex min-h-[calc(100vh-56px)] items-start justify-center px-6 py-10 overflow-hidden">
+        <div
+          className="pointer-events-none absolute"
+          style={{ width: 500, height: 500, top: "30%", left: "50%", transform: "translate(-50%,-50%)", background: "radial-gradient(circle, rgba(245,166,35,0.04) 0%, transparent 65%)" }}
+        />
+        <div className="relative z-10 w-full max-w-xl">
+          <button
+            onClick={onBack}
+            className="mb-6 flex items-center gap-2 text-sm font-body transition-colors"
+            style={{ color: "var(--text-muted)" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
+          >
+            ← Back to Dashboard
+          </button>
+          <div
+            className="rounded-2xl p-8"
+            style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)", backdropFilter: "blur(16px)", boxShadow: "0 24px 64px rgba(0,0,0,0.4)" }}
+          >
+            <h2 className="mb-1 text-lg font-bold font-display" style={{ color: "var(--text-primary)" }}>
+              Edit {SECTION_LABELS[section]}
+            </h2>
+            <p className="mb-6 text-xs font-body" style={{ color: "var(--text-muted)" }}>
+              How would you like to update your data?
+            </p>
+            <div className="grid grid-cols-3 gap-3">
+              {cards.map((c) => (
+                <button
+                  key={String(c.key)}
+                  disabled={c.disabled}
+                  onClick={() => { if (!c.disabled && c.key !== null) setMethod(c.key); }}
+                  className="flex flex-col items-center gap-2 rounded-xl py-5 px-3 text-center transition-all duration-150 relative"
+                  style={{
+                    background: "rgba(255,255,255,0.02)",
+                    border: "1.5px solid rgba(255,255,255,0.07)",
+                    cursor: c.disabled ? "not-allowed" : "pointer",
+                    opacity: c.disabled ? 0.45 : 1,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!c.disabled) {
+                      (e.currentTarget as HTMLButtonElement).style.background = "rgba(245,166,35,0.08)";
+                      (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(245,166,35,0.5)";
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.02)";
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(255,255,255,0.07)";
+                  }}
+                >
+                  {c.disabled && (
+                    <span
+                      className="absolute -top-2 left-1/2 -translate-x-1/2 rounded-full px-2 py-0.5 font-display font-semibold uppercase tracking-wider"
+                      style={{ fontSize: "8px", background: "rgba(255,255,255,0.08)", color: "var(--text-muted)" }}
+                    >
+                      Soon
+                    </span>
+                  )}
+                  <span style={{ fontSize: 22 }}>{c.icon}</span>
+                  <div>
+                    <p className="text-xs font-semibold font-display" style={{ color: "var(--text-secondary)" }}>{c.title}</p>
+                    <p className="mt-0.5 font-body" style={{ fontSize: "10px", color: "var(--text-muted)" }}>{c.desc}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl px-8 py-10">
+      <button
+        onClick={() => setMethod(null)}
+        className="mb-6 flex items-center gap-2 text-sm font-body transition-colors"
+        style={{ color: "var(--text-muted)" }}
+        onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")}
+        onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
+      >
+        ← Choose method
+      </button>
+      <SectionEditor section={section} onBack={onBack} />
+    </div>
+  );
+}
+
 type AccountView =
   | "auth"
   | "checking"
@@ -264,19 +382,10 @@ export default function Page() {
               />
             )}
             {typeof accountView === "object" && "edit" in accountView && (
-              <div className="mx-auto max-w-3xl px-8 py-10">
-                <button
-                  onClick={() => setAccountView("dashboard")}
-                  className="mb-6 flex items-center gap-2 text-sm font-body transition-colors"
-                  style={{ color: "var(--text-muted)" }}
-                  onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")}
-                  onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
-                >
-                  ← Back to Dashboard
-                </button>
-                {/* Section editors rendered from OnboardingWizard exports */}
-                <SectionEditor section={accountView.edit} onBack={() => setAccountView("dashboard")} />
-              </div>
+              <SectionEditWithMethod
+                section={accountView.edit}
+                onBack={() => setAccountView("dashboard")}
+              />
             )}
           </>
         )}
